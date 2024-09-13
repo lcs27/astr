@@ -333,6 +333,17 @@ module pp
         !
         call velgradient_scale_lengths(filenumb) 
         !
+      elseif(trim(readmode)=='vortex2D') then
+          !
+          if(mpirank == 0) then
+            call readkeyboad(inputfile) 
+            read(inputfile,'(i4)') filenumb
+            print*,' ** Filenumb: ',filenumb
+          endif
+          call bcast(filenumb)
+          !
+          call instantvortex2D(filenumb) 
+          !
       else
         print* ,"Readmode is not defined!", readmode
       endif
@@ -10818,6 +10829,242 @@ module pp
     endif
     !
   end subroutine instantvelgradient
+  !
+  subroutine instantvortex2D(thefilenumb)
+    !
+    use, intrinsic :: iso_c_binding
+    use singleton
+    use readwrite, only : readinput
+    use commvar,only : time,nstep,im,jm,km,hm,ia,ja,ka,reynolds
+    use commarray, only : x,vel,dvel,vorbis,dvor,rho,tmp
+    use hdf5io
+    use parallel,  only : dataswap, mpisizedis,parapp,parallelini,mpistop,mpirank,psum
+    use comsolver, only : solvrinit,grad
+    use solver,    only : refcal
+    use geom,      only : geomcal
+    use gridgeneration
+    use fludyna,   only : miucal
+    use fftwlink
+    include 'fftw3-mpi.f03'
+    !
+    ! arguments
+    integer,intent(in) :: thefilenumb
+    character(len=128) :: infilename
+    character(len=4) :: stepname
+    character(len=128) :: outfilename
+    character(len=1) :: modeio
+    integer :: i,j,k,allkmax
+    real(8) :: miu, dissa, rsamples,beta,ens1,ens2
+    type(C_PTR) :: c_u1,c_u2,c_w,forward_plan,backward_plan,c_wx1,c_wx2
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1,u2,w,wx1,wx2
+    real(8), allocatable, dimension(:,:) :: k1,k2
+    complex(8) :: imag
+    !
+    call readinput
+    !
+    call mpisizedis_fftw
+    if(mpirank==0)then
+      print*, '** mpisizedis_fftw done!'
+    endif
+    !
+    call parapp
+    if(mpirank==0)then
+      print*, '** parapp done!'
+    endif
+    !
+    call parallelini
+    if(mpirank==0)then
+      print*, '** parallelini done!'
+    endif
+    !
+    call refcal
+    if(mpirank==0)then
+      print*, '** refcal done!'
+    endif
+    !
+    modeio='h'
+    !
+    if(mpirank==0)then
+      print *,"2D, ia:",ia,",ja:",ja
+    endif
+    allkmax=ceiling(sqrt(2.d0)/3*min(ia,ja))
+    !
+    allocate(x(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3) )
+    allocate(vel(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3))
+    allocate(dvel(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3,1:3))
+    allocate(vorbis(-hm:im+hm,-hm:jm+hm,-hm:km+hm))
+    allocate(dvor(0:im,0:jm,0:km,1:3))
+    allocate(rho(0:im,0:jm,0:km))
+    allocate(tmp(0:im,0:jm,0:km))
+    !
+    call gridsquare(2.d0*pi,2.d0*pi)
+    !
+    call geomcal
+    !
+    if (thefilenumb .ne. 0) then
+      write(stepname,'(i4.4)')thefilenumb
+      infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+    else
+      infilename='outdat/flowfield.'//modeio//'5'
+    endif
+    !
+    call h5io_init(filename=infilename,mode='read')
+    !
+    call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+    call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+    call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+    call h5read(varname='ro', var=rho(0:im,0:jm,0:km),mode = modeio)
+    call h5read(varname='t', var=tmp(0:im,0:jm,0:km),mode = modeio)
+    call h5read(varname='time',var=time)
+    call h5read(varname='nstep',var=nstep)
+    !
+    call h5io_end
+    !
+    if(mpirank==0)then
+      print *, "Swap velocity"
+    endif
+    !
+    call dataswap(vel)
+    !
+    call solvrinit
+    !
+    if(mpirank==0)then
+      print *, "Calculate gradient"
+    endif
+    !
+    dvel(0:im,0:jm,0:km,1,:)=grad(vel(:,:,:,1))
+    dvel(0:im,0:jm,0:km,2,:)=grad(vel(:,:,:,2))
+    !
+    k=0
+    do j=0,jm
+    do i=0,im
+      vorbis(i,j,k)=dvel(i,j,k,2,1)-dvel(i,j,k,1,2)
+    enddo
+    enddo
+    !
+    call dataswap(vorbis)
+    !
+    !
+    dvor=grad(vorbis)
+    !
+    !
+    !! wavenumber
+    allocate(k1(1:im,1:jm),k2(1:im,1:jm))
+    do j = 1,jm
+    do i = 1,im
+      !
+      if(im .ne. ia)then
+        stop "error! im /= ia"
+      endif
+      !
+      if(i <= (ia/2+1)) then
+        k1(i,j) = real(i-1,8)
+      else if(i<=(ia)) then
+        k1(i,j) = real(i-ia-1,8)
+      else
+        print *,"Error, no wave number possible, i must smaller than ia-1 !"
+      end if
+      !
+      if((j+j0) <= (ja/2+1)) then
+        k2(i,j) = real(j+j0-1,8)
+      else if((j+j0)<=(ja)) then
+        k2(i,j) = real(j+j0-ja-1,8)
+      else
+        print *,"Error, no wave number possible, (j+j0) must smaller than ja-1 !"
+      end if
+      !
+    end do
+    end do
+    !
+    !! Imaginary number prepare
+    imag = CMPLX(0.d0,1.d0,8)
+    !
+    !!!! Prepare initial field in Fourier space
+    !! velocity
+    c_u1 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1, u1, [imfftw,jmfftw])
+    c_u2 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2, u2, [imfftw,jmfftw])
+    c_w = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_w, w, [imfftw,jmfftw])
+    c_wx1 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_wx1, wx1, [imfftw,jmfftw])
+    c_wx2 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_wx2, wx2, [imfftw,jmfftw])
+    !
+    !
+    forward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1,u1, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+    backward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1,u1, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+    !
+    do j=1,jm
+    do i=1,im
+      !
+      u1(i,j)=CMPLX(vel(i,j,0,1),0.d0,C_INTPTR_T);
+      u2(i,j)=CMPLX(vel(i,j,0,2),0.d0,C_INTPTR_T);
+      !
+    end do
+    end do
+    !
+    !After this bloc, u1,u2,w are in spectral space
+    call fftw_mpi_execute_dft(forward_plan,u1,u1)
+    call fftw_mpi_execute_dft(forward_plan,u2,u2)
+    !
+    do j=1,jm
+    do i=1,im
+      !
+      u1(i,j)=u1(i,j)/(1.d0*ia*ja)
+      u2(i,j)=u2(i,j)/(1.d0*ia*ja)
+      !
+      w(i,j)=imag*k1(i,j)*u2(i,j)-imag*k2(i,j)*u1(i,j)
+      if(sqrt(k1(i,j)**2+k2(i,j)**2) > allkmax)then
+        w(i,j) = 0.d0
+      endif
+      !
+      wx1(i,j)=imag*k1(i,j)*w(i,j)
+      wx2(i,j)=imag*k2(i,j)*w(i,j)
+    end do
+    end do
+    !
+    !After this bloc,u1,u2,w,wx1,wx2 are in physical space
+    call fftw_mpi_execute_dft(backward_plan,w,w)
+    call fftw_mpi_execute_dft(backward_plan,wx1,wx1)
+    call fftw_mpi_execute_dft(backward_plan,wx2,wx2)
+    !
+    beta = 0.d0
+    dissa = 0.d0
+    ens1 = 0.d0
+    ens2 = 0.d0
+    rsamples=dble(ia*ja)
+    !
+    k = 0
+    do j=1,jm
+    do i=1,im
+      !
+      !
+      miu = miucal(tmp(i,j,k))/Reynolds
+      beta = beta + miu/rho(i,j,0) * (dreal(wx1(i,j))**2 + dreal(wx2(i,j))**2)
+      dissa = dissa + miu/rho(i,j,k)*(dvor(i,j,k,1)**2+dvor(i,j,k,2)**2)
+      ens1 = ens1 + dreal(w(i,j))**2
+      ens2 = ens2 + vorbis(i,j,k)**2
+      !
+    end do
+    end do
+    !
+    beta  = psum(beta) / rsamples
+    dissa= psum(dissa)/rsamples
+    ens1 = psum(ens1)/rsamples
+    ens2 = psum(ens2)/rsamples
+    !
+    if(mpirank==0)then
+      print *, 'dissp: spectral, physical', dissa, beta
+      print *, 'ens: spectral, physical', ens1, ens2
+    endif
+    !
+    call mpistop
+    !
+    deallocate(x,vel,dvel,dvor,tmp,rho)
+    !
+  end subroutine instantvortex2D
   !
   subroutine velgradient_scale_lengths(thefilenumb)
     !
