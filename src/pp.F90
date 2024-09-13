@@ -86,17 +86,20 @@ module pp
       endif
       call bcast(readmode)
       !
-      if(trim(readmode)=='serial') then
+      if(trim(readmode)=='IC4') then
         !
         if(mpisize .ne. 1) then
-          stop ' Serial mode please only use 1 proc'
+          call hitgen_ic4_parallel
+          if(mpirank == 0)   print *, ' Parallel used, generate IC4'
+        else
+          print *, 'Serial mode, only use 1 proc, generate IC4'
+          call hitgen_ic4
         endif
         !
-        call hitgen
-      elseif(trim(readmode)=='parallel') then
+      elseif(trim(readmode)=='pic') then
         !
-        if(mpirank == 0)   print *, ' Parallel used'
-        call hitgen_parallel
+        ! TODO: implement
+        stop 'NOT IMPLEMENTED ERROR'
         !
       else
         print* ,"Readmode is not defined!", readmode
@@ -109,17 +112,25 @@ module pp
         endif
       call bcast(readmode)
       !
-      if(trim(readmode)=='serial') then
+      if(trim(readmode)=='IC4') then
         !
         if(mpisize .ne. 1) then
-          stop ' Serial mode please only use 1 proc'
+          call hitgen2d_ic4_parallel
+          if(mpirank == 0)   print *, ' Parallel used, generate IC4'
+        else
+          print *, 'Serial mode, only use 1 proc, generate IC4'
+          call hitgen2d_ic4
         endif
         !
-        call hitgen2d
-      elseif(trim(readmode)=='parallel') then
+      elseif(trim(readmode)=='pic') then
         !
-        if(mpirank == 0)   print *, ' Parallel used'
-        call hitgen2d_parallel
+        if(mpirank == 0)   print *, 'Generate one pic field'
+        call hitgen2d_pic
+        !
+      elseif(trim(readmode)=='herring') then
+        !
+        if(mpirank == 0)   print *, 'Generate Herrings field'
+        call hitgen2d_herring
         !
       else
         print* ,"Readmode is not defined!", readmode
@@ -2903,7 +2914,7 @@ module pp
   !| -------------                                                     |
   !| 25-04-2023: Created by J. Fang @ STFC Daresbury Laboratory        |
   !+-------------------------------------------------------------------+
-  subroutine hitgen
+  subroutine hitgen_ic4
     !
     use cmdefne,   only : readkeyboad
     use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm,Mach,Reynolds, &
@@ -3078,12 +3089,12 @@ module pp
     !                        vel(0:im,0:jm,0:km,2),'v', &
     !                        vel(0:im,0:jm,0:km,3),'w' )
     !
-  end subroutine hitgen
+  end subroutine hitgen_ic4
   !+-------------------------------------------------------------------+
   !| The end of the subroutine hitgen.                                 |
   !+-------------------------------------------------------------------+
   !
-  subroutine hitgen_parallel
+  subroutine hitgen_ic4_parallel
     !
     use, intrinsic :: iso_c_binding
     use fftwlink
@@ -3391,7 +3402,7 @@ module pp
     call fftw_free(c_u3r)
     call mpistop
     !
-  end subroutine hitgen_parallel
+  end subroutine hitgen_ic4_parallel
   !+-------------------------------------------------------------------+
   !| The end of the subroutine hitgen.                                 |
   !+-------------------------------------------------------------------+
@@ -3406,7 +3417,7 @@ module pp
   !| -------------                                                     |
   !| 17 Nov. 2023: Created by C.S. Luo @ Beihang University            |
   !+-------------------------------------------------------------------+
-  subroutine hitgen2d
+  subroutine hitgen2d_ic4
     !
     use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm,Mach,Reynolds, &
                           tinf,roinf,spcinf,num_species,nondimen,&
@@ -3494,13 +3505,13 @@ module pp
     !
     call mpistop
     !
-  end subroutine hitgen2d
+  end subroutine hitgen2d_ic4
   !+-------------------------------------------------------------------+
   !| The end of the subroutine hitgen2d.                               |
   !+-------------------------------------------------------------------+
   !
   !
-  subroutine hitgen2d_parallel
+  subroutine hitgen2d_ic4_parallel
     !
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput, readgrid, readic
@@ -3753,10 +3764,529 @@ module pp
     call mpistop
     ! 
     !
-  end subroutine hitgen2d_parallel
+  end subroutine hitgen2d_ic4_parallel
   !+-------------------------------------------------------------------+
   !| The end of the subroutine hitgen2d_parallel.                               |
   !+-------------------------------------------------------------------+
+  !
+  !
+  subroutine hitgen2d_pic
+    ! This code is directly the parallel version
+    !
+    use, intrinsic :: iso_c_binding
+    use readwrite, only : readinput, readgrid, readic
+    use fftwlink
+    use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm,Mach,Reynolds, &
+                          tinf,roinf,spcinf,num_species,nondimen,&
+                          ickmax,iomode,icamplitude,icsolenoidal,icdilatational
+    use bc,        only : twall
+    use commarray, only : x,vel,rho,tmp,prs,dvel,spc
+    use solver,    only : refcal
+    use parallel,  only : parallelini,mpistop,mpi_sizeof,mpirank, psum, pmax, dataswap
+    use geom,      only : geomcal
+    use fludyna,   only : thermal
+    use hdf5io
+    use gridgeneration
+    use tecio
+    include 'fftw3-mpi.f03'
+    !
+    integer :: i,j,n,clock,irandom,total_m,proc_m,m
+    real(8), allocatable, dimension(:,:) :: k1,k2
+    integer,allocatable :: seed(:)
+    real(8) :: wn1, wn2, wna, var1, var2, ran1, ran2
+    real(8) :: dudi,lambda,ke0,en0,lint,tau,eta0,vmax
+    complex(8) :: vac1, vac2, crn1, crn2
+    real(8) :: Kenergy,Enstropy,ITGscale,LETT,KolmLength,urms,ufmx,ISEA
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1c,u2c
+    real(C_DOUBLE), pointer, dimension(:,:) :: u1r,u2r
+    type(C_PTR) ::  backward_plan, c_u1c, c_u2c, c_u1r, c_u2r
+    !
+    call readinput
+    call readic
+    if(mpirank==0)  print *, "ia:",ia,",ja:",ja
+    !
+    call fftw_mpi_init()
+    if(mpirank==0)  print *, "fftw_mpi initialized"
+    !
+    call mpisizedis_half_fftw
+    if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+    !
+    call parallelini
+    if(mpirank==0)  print*, '** parallelini done!'
+    !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
+    !
+    !
+    allocate( vel(-hm:2*im+hm,-hm:jm+hm,-hm:hm,1:3) )
+    allocate(rho(0:(2*im),0:jm,0:0),tmp(0:(2*im),0:jm,0:0),prs(0:(2*im),0:jm,0:0))
+    if(mpirank==0)  print*, '** allocation finished!'
+    !
+    ! call readgrid(trim(gridfile))
+    !
+    ! Generate field
+    ISEA=1.d0/224.7699d0
+    !
+    !! random seed
+    call random_seed(size=n)
+    allocate(seed(n))
+    CALL SYSTEM_CLOCK(COUNT=clock)
+    seed = clock  +  37  *  (/ (irandom  -  1, irandom = 1, n) /)
+    call random_seed(put=seed)
+    deallocate(seed)
+    !
+    !! wavenumber generation
+    allocate(k1(1:im,1:jm),k2(1:im,1:jm))
+    do j=1,jm
+    do i=1,im
+      !
+      ! if(jm .ne. ja)then
+      !   stop "error! jm /= ja"
+      ! endif
+      !
+      if(i <= (ia/2+1)) then
+        k1(i,j) = real(i-1,8)
+      else if(i<=(ia)) then
+        k1(i,j) = real(i-ia-1,8)
+      else
+        print *,"Error, no wave number possible, i must smaller than ia-1 !"
+      end if
+      !
+      if((j+j0) <= (ja/2+1)) then
+        k2(i,j) = real(j+j0-1,8)
+      else if((j+j0)<=(ja)) then
+        k2(i,j) = real(j+j0-ja-1,8)
+      else
+        print *,"Error, no wave number possible, (j+jm) must smaller than ja-1 !"
+      end if
+      !
+    end do
+    end do
+    !
+    !! complex speed allocation
+    c_u1c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1c, u1c, [imfftw,jmfftw])
+    c_u2c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2c, u2c, [imfftw,jmfftw])
+    !
+    c_u1r = fftw_alloc_complex(2*alloc_local)
+    call c_f_pointer(c_u1r, u1r, [2*imfftw,jmfftw])
+    c_u2r = fftw_alloc_complex(2*alloc_local)
+    call c_f_pointer(c_u2r, u2r, [2*imfftw,jmfftw])
+    !
+    backward_plan = fftw_mpi_plan_dft_c2r_2d(jafftw,iafftw, u1c,u1r, MPI_COMM_WORLD,FFTW_MEASURE)
+    !
+    !! half spectral generation
+    !
+    do j=1,jm
+    do i=1,im
+      if(k1(i,j)==0 .and. k2(i,j)==0) then
+        u1c(i,j)=0.d0
+        u2c(i,j)=0.d0
+      else
+        call random_number(ran1)
+        call random_number(ran2)
+        ! ran1: random number distributied in (0,1)
+        !
+        crn1=ran1*2.d0*pi*(0.d0,1.d0)
+        crn2=ran2*2.d0*pi*(0.d0,1.d0)
+        !
+        ! Calculate the modul of the wavenumber in each direction
+        wn1=real(k1(i,j))
+        wn2=real(k2(i,j))
+        wna=sqrt(wn1**2+wn2**2)
+        !
+        if( wna> ickmax-0.5d0 .and. wna < ickmax+0.5d0) then
+          var1=ISEA*2.d0
+        else
+          var1 = 0.d0
+        endif
+        var2=sqrt(var1/2.d0/pi/wna)
+        !
+        vac1=var2*cdexp(crn1)
+        vac2=var2*cdexp(crn2)
+        !
+        u1c(i,j)=vac1*wn2/wna*icsolenoidal + vac2*wn1/wna*icdilatational
+        u2c(i,j)=-vac1*wn1/wna*icsolenoidal + vac2*wn2/wna*icdilatational
+      end if
+    enddo
+    enddo
+    !
+    call mpi_barrier(mpi_comm_world,ierr)
+    !
+    !
+    if(mpirank==0)  print*, '** field generated!'
+    !
+    call fftw_mpi_execute_dft_c2r(backward_plan,u1c,u1r)
+    call fftw_mpi_execute_dft_c2r(backward_plan,u2c,u2r)
+    !
+    if(mpirank==0)  print*,' ** project to physical space. '
+    !
+    im = im*2-2
+    !
+    do j=1,jm
+    do i=1,im
+      ! 
+      vel(i,j,0,1)=u1r(i,j)
+      vel(i,j,0,2)=u2r(i,j)
+      !
+    end do
+    end do
+    !
+    vel(0,1:jm,0,1)=vel(im,1:jm,0,1)
+    vel(0,1:jm,0,2)=vel(im,1:jm,0,2)
+    !
+    vel(0:im,0:(jm-1),0,1)=vel(0:im,1:jm,0,1)
+    vel(0:im,0:(jm-1),0,2)=vel(0:im,1:jm,0,2)
+    !
+    ! Prepare other field
+    vel(0:im,0:jm,0,3)=0.d0
+    !
+    call dataswap(vel)
+    !
+    do j=0,jm
+    do i=0,im
+      !
+      rho(i,j,0)  = roinf
+      tmp(i,j,0)  = tinf 
+      if(nondimen) then
+          prs(i,j,0)  = thermal(density=rho(i,j,0),temperature=tmp(i,j,0))
+      else
+          spc(i,j,0,:)= spcinf(:)
+          prs(i,j,0)  = thermal(density=rho(i,j,0),temperature=tmp(i,j,0),species=spc(i,j,0,:))
+      endif
+      vel(i,j,0,1)= icamplitude*vel(i,j,0,1)
+      vel(i,j,0,2)= icamplitude*vel(i,j,0,2)
+      !
+      vmax = max(vmax,sqrt(vel(i,j,0,1)**2+vel(i,j,0,2)**2))
+      !
+    enddo
+    enddo
+    !
+    vmax= pmax(vmax)
+    !
+    if(mpirank==0)  then
+      print*, '** max velocity    :',vmax
+    endif
+    !
+    ! Output
+    call h5io_init(trim('datin/flowini2d.h5'),mode='write')
+    !
+    if((j0+jm)==ja)then
+      call h5wa2d_r8(varname='ro',var=rho(0:im,0:jm,0),  dir='k')
+      call h5wa2d_r8(varname='u1',var=vel(0:im,0:jm,0,1),dir='k')
+      call h5wa2d_r8(varname='u2',var=vel(0:im,0:jm,0,2),dir='k')
+      call h5wa2d_r8(varname='p', var=prs(0:im,0:jm,0),  dir='k')
+      call h5wa2d_r8(varname='t', var=tmp(0:im,0:jm,0),  dir='k')
+    else
+      call h5wa2d_r8(varname='ro',var=rho(0:im,0:(jm-1),0),  dir='k')
+      call h5wa2d_r8(varname='u1',var=vel(0:im,0:(jm-1),0,1),dir='k')
+      call h5wa2d_r8(varname='u2',var=vel(0:im,0:(jm-1),0,2),dir='k')
+      call h5wa2d_r8(varname='p', var=prs(0:im,0:(jm-1),0),  dir='k')
+      call h5wa2d_r8(varname='t', var=tmp(0:im,0:(jm-1),0),  dir='k')
+    endif
+    !
+    call h5io_end
+    !
+    ! Param
+    !
+    ! if(mpirank == 0) then
+    !   ke0=3.d0*ISEA/64.d0*sqrt(2.d0*pi)*dble(ickmax**5)
+    !   en0=15.d0*ISEA/256.d0*sqrt(2.d0*pi)*dble(ickmax**7)
+    !   lint=sqrt(2.d0*pi)/ke0
+    !   tau =sqrt(32.d0/ISEA*sqrt(2.d0*pi))/sqrt(dble(ickmax**7))
+    !   eta0=1.d0/sqrt(sqrt(2.d0*en0*Reynolds**2))
+    !   !
+    !   print*,' ---------------------------------------------------------------'
+    !   print*,'        statistics according to the initial energy spectrum     '
+    !   print*,' --------------------------+------------------------------------'
+    !   print*,'                   kenergy |',ke0
+    !   print*,'                 enstrophy |',en0
+    !   print*,'           integral length |',lint
+    !   print*,'  large-eddy-turnover time |',tau
+    !   print*,'         kolmogorov length |',eta0
+    !   print*,' --------------------------+------------------------------------'
+    ! endif
+    !
+    ! Test
+    if(mpirank==0)  print*, '-- Test!'
+    ! 
+    allocate(x(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3) )
+    call gridcube(2.d0*pi,2.d0*pi,0.d0)
+    call geomcal
+    !
+    call div_test_2d(vel,dvel)
+    !
+    !call hitsta2d
+    !
+    call fftw_destroy_plan(backward_plan)
+    call fftw_mpi_cleanup()
+    call fftw_free(c_u1c)
+    call fftw_free(c_u2c)
+    call fftw_free(c_u1r)
+    call fftw_free(c_u2r)
+    call mpistop
+    ! 
+    !
+  end subroutine hitgen2d_pic
+  !+-------------------------------------------------------------------+
+  !| The end of the subroutine hitgen2d_pic.                               |
+  !+-------------------------------------------------------------------+
+  !
+  subroutine hitgen2d_herring
+    !
+    use, intrinsic :: iso_c_binding
+    use readwrite, only : readinput, readgrid, readic
+    use fftwlink
+    use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm,Mach,Reynolds, &
+                          tinf,roinf,spcinf,num_species,nondimen,&
+                          ickmax,iomode,icamplitude,icsolenoidal,icdilatational
+    use bc,        only : twall
+    use commarray, only : x,vel,rho,tmp,prs,dvel,spc
+    use solver,    only : refcal
+    use parallel,  only : parallelini,mpistop,mpi_sizeof,mpirank, psum, pmax, dataswap
+    use geom,      only : geomcal
+    use fludyna,   only : thermal
+    use hdf5io
+    use gridgeneration
+    use tecio
+    include 'fftw3-mpi.f03'
+    !
+    integer :: i,j,n,clock,irandom,total_m,proc_m,m
+    real(8), allocatable, dimension(:,:) :: k1,k2
+    integer,allocatable :: seed(:)
+    real(8) :: wn1, wn2, wna, var1, var2, ran1, ran2
+    real(8) :: dudi,lambda,ke0,en0,lint,tau,eta0,vmax
+    complex(8) :: vac1, vac2, crn1, crn2
+    real(8) :: Kenergy,Enstropy,ITGscale,LETT,KolmLength,urms,ufmx,ISEA
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1c,u2c
+    real(C_DOUBLE), pointer, dimension(:,:) :: u1r,u2r
+    type(C_PTR) ::  backward_plan, c_u1c, c_u2c, c_u1r, c_u2r
+    !
+    call readinput
+    call readic
+    if(mpirank==0)  print *, "ia:",ia,",ja:",ja
+    !
+    call fftw_mpi_init()
+    if(mpirank==0)  print *, "fftw_mpi initialized"
+    !
+    call mpisizedis_half_fftw
+    if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+    !
+    call parallelini
+    if(mpirank==0)  print*, '** parallelini done!'
+    !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
+    !
+    !
+    allocate( vel(-hm:2*im+hm,-hm:jm+hm,-hm:hm,1:3) )
+    allocate(rho(0:(2*im),0:jm,0:0),tmp(0:(2*im),0:jm,0:0),prs(0:(2*im),0:jm,0:0))
+    if(mpirank==0)  print*, '** allocation finished!'
+    !
+    ! call readgrid(trim(gridfile))
+    !
+    ! Generate field
+    ISEA=1.d0/224.7699d0
+    !
+    !! random seed
+    call random_seed(size=n)
+    allocate(seed(n))
+    CALL SYSTEM_CLOCK(COUNT=clock)
+    seed = clock  +  37  *  (/ (irandom  -  1, irandom = 1, n) /)
+    call random_seed(put=seed)
+    deallocate(seed)
+    !
+    !! wavenumber generation
+    allocate(k1(1:im,1:jm),k2(1:im,1:jm))
+    do j=1,jm
+    do i=1,im
+      !
+      ! if(jm .ne. ja)then
+      !   stop "error! jm /= ja"
+      ! endif
+      !
+      if(i <= (ia/2+1)) then
+        k1(i,j) = real(i-1,8)
+      else if(i<=(ia)) then
+        k1(i,j) = real(i-ia-1,8)
+      else
+        print *,"Error, no wave number possible, i must smaller than ia-1 !"
+      end if
+      !
+      if((j+j0) <= (ja/2+1)) then
+        k2(i,j) = real(j+j0-1,8)
+      else if((j+j0)<=(ja)) then
+        k2(i,j) = real(j+j0-ja-1,8)
+      else
+        print *,"Error, no wave number possible, (j+jm) must smaller than ja-1 !"
+      end if
+      !
+    end do
+    end do
+    !
+    !! complex speed allocation
+    c_u1c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1c, u1c, [imfftw,jmfftw])
+    c_u2c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2c, u2c, [imfftw,jmfftw])
+    !
+    c_u1r = fftw_alloc_complex(2*alloc_local)
+    call c_f_pointer(c_u1r, u1r, [2*imfftw,jmfftw])
+    c_u2r = fftw_alloc_complex(2*alloc_local)
+    call c_f_pointer(c_u2r, u2r, [2*imfftw,jmfftw])
+    !
+    backward_plan = fftw_mpi_plan_dft_c2r_2d(jafftw,iafftw, u1c,u1r, MPI_COMM_WORLD,FFTW_MEASURE)
+    !
+    !! half spectral generation
+    !
+    do j=1,jm
+    do i=1,im
+      if(k1(i,j)==0 .and. k2(i,j)==0) then
+        u1c(i,j)=0.d0
+        u2c(i,j)=0.d0
+      else
+        call random_number(ran1)
+        call random_number(ran2)
+        ! ran1: random number distributied in (0,1)
+        !
+        crn1=ran1*2.d0*pi*(0.d0,1.d0)
+        crn2=ran2*2.d0*pi*(0.d0,1.d0)
+        !
+        ! Calculate the modul of the wavenumber in each direction
+        wn1=real(k1(i,j))
+        wn2=real(k2(i,j))
+        wna=sqrt(wn1**2+wn2**2)
+        !
+        var1=ISEA*wna/(1.d0*ickmax)*exp(-wna/(1.d0*ickmax))
+        var2=sqrt(var1/2.d0/pi/wna)
+        !
+        vac1=var2*cdexp(crn1)
+        vac2=var2*cdexp(crn2)
+        !
+        u1c(i,j)=vac1*wn2/wna*icsolenoidal + vac2*wn1/wna*icdilatational
+        u2c(i,j)=-vac1*wn1/wna*icsolenoidal + vac2*wn2/wna*icdilatational
+      end if
+    enddo
+    enddo
+    !
+    call mpi_barrier(mpi_comm_world,ierr)
+    !
+    !
+    if(mpirank==0)  print*, '** field generated!'
+    !
+    call fftw_mpi_execute_dft_c2r(backward_plan,u1c,u1r)
+    call fftw_mpi_execute_dft_c2r(backward_plan,u2c,u2r)
+    !
+    if(mpirank==0)  print*,' ** project to physical space. '
+    !
+    im = im*2-2
+    !
+    do j=1,jm
+    do i=1,im
+      ! 
+      vel(i,j,0,1)=u1r(i,j)
+      vel(i,j,0,2)=u2r(i,j)
+      !
+    end do
+    end do
+    !
+    vel(0,1:jm,0,1)=vel(im,1:jm,0,1)
+    vel(0,1:jm,0,2)=vel(im,1:jm,0,2)
+    !
+    vel(0:im,0:(jm-1),0,1)=vel(0:im,1:jm,0,1)
+    vel(0:im,0:(jm-1),0,2)=vel(0:im,1:jm,0,2)
+    !
+    ! Prepare other field
+    vel(0:im,0:jm,0,3)=0.d0
+    !
+    call dataswap(vel)
+    !
+    do j=0,jm
+    do i=0,im
+      !
+      rho(i,j,0)  = roinf
+      tmp(i,j,0)  = tinf 
+      if(nondimen) then
+          prs(i,j,0)  = thermal(density=rho(i,j,0),temperature=tmp(i,j,0))
+      else
+          spc(i,j,0,:)= spcinf(:)
+          prs(i,j,0)  = thermal(density=rho(i,j,0),temperature=tmp(i,j,0),species=spc(i,j,0,:))
+      endif
+      vel(i,j,0,1)= icamplitude*vel(i,j,0,1)
+      vel(i,j,0,2)= icamplitude*vel(i,j,0,2)
+      !
+      vmax = max(vmax,sqrt(vel(i,j,0,1)**2+vel(i,j,0,2)**2))
+      !
+    enddo
+    enddo
+    !
+    vmax= pmax(vmax)
+    !
+    if(mpirank==0)  then
+      print*, '** max velocity    :',vmax
+    endif
+    !
+    ! Output
+    call h5io_init(trim('datin/flowini2d.h5'),mode='write')
+    !
+    if((j0+jm)==ja)then
+      call h5wa2d_r8(varname='ro',var=rho(0:im,0:jm,0),  dir='k')
+      call h5wa2d_r8(varname='u1',var=vel(0:im,0:jm,0,1),dir='k')
+      call h5wa2d_r8(varname='u2',var=vel(0:im,0:jm,0,2),dir='k')
+      call h5wa2d_r8(varname='p', var=prs(0:im,0:jm,0),  dir='k')
+      call h5wa2d_r8(varname='t', var=tmp(0:im,0:jm,0),  dir='k')
+    else
+      call h5wa2d_r8(varname='ro',var=rho(0:im,0:(jm-1),0),  dir='k')
+      call h5wa2d_r8(varname='u1',var=vel(0:im,0:(jm-1),0,1),dir='k')
+      call h5wa2d_r8(varname='u2',var=vel(0:im,0:(jm-1),0,2),dir='k')
+      call h5wa2d_r8(varname='p', var=prs(0:im,0:(jm-1),0),  dir='k')
+      call h5wa2d_r8(varname='t', var=tmp(0:im,0:(jm-1),0),  dir='k')
+    endif
+    !
+    call h5io_end
+    !
+    ! Param
+    !
+    ! if(mpirank == 0) then
+    !   ke0=3.d0*ISEA/64.d0*sqrt(2.d0*pi)*dble(ickmax**5)
+    !   en0=15.d0*ISEA/256.d0*sqrt(2.d0*pi)*dble(ickmax**7)
+    !   lint=sqrt(2.d0*pi)/ke0
+    !   tau =sqrt(32.d0/ISEA*sqrt(2.d0*pi))/sqrt(dble(ickmax**7))
+    !   eta0=1.d0/sqrt(sqrt(2.d0*en0*Reynolds**2))
+    !   !
+    !   print*,' ---------------------------------------------------------------'
+    !   print*,'        statistics according to the initial energy spectrum     '
+    !   print*,' --------------------------+------------------------------------'
+    !   print*,'                   kenergy |',ke0
+    !   print*,'                 enstrophy |',en0
+    !   print*,'           integral length |',lint
+    !   print*,'  large-eddy-turnover time |',tau
+    !   print*,'         kolmogorov length |',eta0
+    !   print*,' --------------------------+------------------------------------'
+    ! endif
+    !
+    ! Test
+    if(mpirank==0)  print*, '-- Test!'
+    ! 
+    allocate(x(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3) )
+    call gridcube(2.d0*pi,2.d0*pi,0.d0)
+    call geomcal
+    !
+    call div_test_2d(vel,dvel)
+    !
+    !call hitsta2d
+    !
+    call fftw_destroy_plan(backward_plan)
+    call fftw_mpi_cleanup()
+    call fftw_free(c_u1c)
+    call fftw_free(c_u2c)
+    call fftw_free(c_u1r)
+    call fftw_free(c_u2r)
+    call mpistop
+    ! 
+    !
+  end subroutine hitgen2d_herring
   !
   !+-------------------------------------------------------------------+
   !| This subroutine is used calcualted the statistics of hit.         |
