@@ -6867,11 +6867,13 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput,readic
     use fftwlink
-    use commvar,only : im,jm,km,ia,ja,ka,ickmax
-    use commarray, only: vel
+    use commvar,   only : im,jm,km,ia,ja,ka,ickmax,Reynolds
+    use commarray, only : vel
     use hdf5io
-    use utility,  only : listinit,listwrite
-    use parallel, only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
+    use utility,   only : listinit,listwrite
+    use parallel,  only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
+    use fludyna,   only : miucal
+    use solver,    only : refcal
     include 'fftw3-mpi.f03'
     !
     ! arguments
@@ -6886,7 +6888,7 @@ module pp
     real(8), allocatable, dimension(:,:) :: k1,k2
     !
     real(8) :: k,dk !wave number
-    real(8) :: Espeall,TauAbove,urms,tau,L
+    real(8) :: Espeall,Dissip,urms,tau,L,miu
     integer :: i,j,n
     
     !
@@ -6909,6 +6911,8 @@ module pp
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
     !
+    call refcal
+    if(mpirank==0)  print*, '** Referencecal done'
     !
     allocate(vel(0:im,0:jm,0:km,1:2))
     !
@@ -7004,24 +7008,25 @@ module pp
     dk = 0.5d0
     !
     Espeall = 0.d0
-    TauAbove = 0.d0
+    Dissip = 0.d0
     !
     do j=1,jm
     do i=1,im
         k=dsqrt(k1(i,j)**2+k2(i,j)**2+1.d-15)
         Espeall = Espeall + (u1spe(i,j)*dconjg(u1spe(i,j)))/2 + &
                             (u2spe(i,j)*dconjg(u2spe(i,j)))/2
-        TauAbove = TauAbove + (u1spe(i,j)*dconjg(u1spe(i,j)))/k/2 + &
-                              (u2spe(i,j)*dconjg(u2spe(i,j)))/k/2
+        Dissip = Dissip + (u1spe(i,j)*dconjg(u1spe(i,j)))*(k**4) + &
+                              (u2spe(i,j)*dconjg(u2spe(i,j)))*(k**4)
       end do
     end do
     !
     !
-    TauAbove = psum(TauAbove)
+    miu = miucal(1.d0)/reynolds
+    Dissip = psum(Dissip)*miu
     Espeall = psum(Espeall)
     !
     urms = sqrt(Espeall)
-    L = TauAbove/urms/urms*pi/2
+    L = Espeall**(1.d0/2.d0)/Dissip**(1.d0/3.d0)
     tau = L/urms
     !
     if(mpirank==0)  print*, '** spectra calculation finish'
@@ -7270,7 +7275,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -8803,7 +8808,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -11048,7 +11053,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km,reynolds
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka,reynolds
     use commarray, only: vel,tmp,rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -11068,8 +11073,9 @@ module pp
     real(8),allocatable,dimension(:) :: l_lim
     integer :: num_l,num_alpha,num_alphamin
     integer :: hand_a,hand_b
+    integer :: allkmax
     real(8) :: l_min, ratio_max, ratio_min
-    real(8) :: Gl, beta,roav,miu,miuav
+    real(8) :: Gl, beta,roav,miu,miuav,miudrho
     real(8), allocatable, dimension(:) :: Pi_omega
     complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1_filted,u2_filted,w_filted
     complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: wu1_filted,wu2_filted
@@ -11096,6 +11102,7 @@ module pp
     if(mpirank==0)  print *, "fftw_mpi initialized"
     !
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja, 'Reynolds:',reynolds
+    allkmax=ceiling(sqrt(2.d0)/3*min(ia,ja))
     !
     call mpisizedis_fftw
     if(mpirank==0)  print*, '** mpisizedis & parapp done!'
@@ -11200,6 +11207,11 @@ module pp
       u2(i,j)=u2(i,j)/(1.d0*ia*ja)
       !
       w(i,j)=imag*k1(i,j)*u2(i,j)-imag*k2(i,j)*u1(i,j)
+      !
+      if(sqrt(k1(i,j)**2+k2(i,j)**2) > allkmax)then
+        w(i,j) = 0.d0
+      endif
+      !
       wx1(i,j)=imag*k1(i,j)*w(i,j)
       wx2(i,j)=imag*k2(i,j)*w(i,j)
       !
@@ -11217,6 +11229,7 @@ module pp
     roav = 0.d0
     miu = 0.d0
     miuav = 0.d0
+    miudrho = 0.d0
     !!! 
     do j=1,jm
     do i=1,im
@@ -11227,10 +11240,11 @@ module pp
       !
       !
       miu=miucal(tmp(i,j,0))/reynolds
-      beta = beta + miu/rho(i,j,0) * (wx1(i,j)**2 + wx2(i,j)**2)
+      beta = beta + miu/rho(i,j,0) * (dreal(wx1(i,j))**2 + dreal(wx2(i,j))**2)
       !
       roav=roav+rho(i,j,0)
       miuav=miuav+miu
+      miudrho = miudrho+miu/rho(i,j,0)
       !
     end do
     end do
@@ -11238,6 +11252,7 @@ module pp
     beta  = psum(beta) / (ia*ja)
     roav  = psum(roav) / (ia*ja)
     miuav = psum(miuav)/ (ia*ja)
+    miudrho = psum(miudrho) / (ia*ja)
     !
     !After this bloc, u1,u2,w,wu1,wu2 are in spectral space
     call fftw_mpi_execute_dft(forward_plan,u1,u1)
@@ -11263,7 +11278,7 @@ module pp
     !
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -11359,9 +11374,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin piomega beta nuav lens')
+                    firstline='nstep time ell piomega beta miudrho miudrho2 lens')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pi_omega(m), beta,miuav/roav,((miuav/roav)**3/beta)**(1.d0/6.d0))
+        call listwrite(hand_a,l_lim(m), Pi_omega(m), beta,miuav/roav,miudrho,((miudrho)**3/beta)**(1.d0/6.d0))
       enddo
       !
       print *, '>>>>', outfilename
@@ -11397,7 +11412,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -11580,7 +11595,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -11715,9 +11730,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pitot')
+                    firstline='nstep time ell pitot')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pi_tot(m))
+        call listwrite(hand_a,l_lim(m), Pi_tot(m))
       enddo
       !
       print *, '>>>>', outfilename
@@ -11757,7 +11772,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -11911,7 +11926,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -12076,9 +12091,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pis1 pis2 pim2 pim3 pid')
+                    firstline='nstep time ell pis1 pis2 pim2 pim3 pid')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pis1(m), Pis2(m), Pim2(m), Pim3(m), Pid(m))
+        call listwrite(hand_a,l_lim(m), Pis1(m), Pis2(m), Pim2(m), Pim3(m), Pid(m))
       enddo
       !
       print *, '>>>>', outfilename
@@ -12261,7 +12276,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
     allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
     !
@@ -12692,9 +12707,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pi1 pi2 pi3 pi4 pi5 pi6 pi7')
+                    firstline='nstep time ell pi1 pi2 pi3 pi4 pi5 pi6 pi7')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pi1(m), Pi2(m), &
+        call listwrite(hand_a,l_lim(m), Pi1(m), Pi2(m), &
                         Pi3(m), Pi4(m), Pi5(m),     &
                         Pi6(m), Pi7(m))
       end do
@@ -12747,7 +12762,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -12997,7 +13012,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -13187,9 +13202,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pitot')
+                    firstline='nstep time ell pitot')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pi_tot(m))
+        call listwrite(hand_a,l_lim(m), Pi_tot(m))
       enddo
       !
       print *, '>>>>', outfilename
@@ -13246,7 +13261,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -13431,7 +13446,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -13679,9 +13694,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pis1 pis2 pim2 pim3 pid')
+                    firstline='nstep time ell pis1 pis2 pim2 pim3 pid')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pis1(m), Pis2(m), Pim2(m), Pim3(m), Pid(m))
+        call listwrite(hand_a,l_lim(m), Pis1(m), Pis2(m), Pim2(m), Pim3(m), Pid(m))
       enddo
       !
       print *, '>>>>', outfilename
@@ -13722,7 +13737,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -13895,7 +13910,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l))
     !
     do i=1,num_l
@@ -14079,9 +14094,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin AllAll SijSij')
+                    firstline='nstep time ell AllAll SijSij')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, AllAll(m),SijSij(m))
+        call listwrite(hand_a,l_lim(m), AllAll(m),SijSij(m))
       enddo
       !
       print *, '>>>>', outfilename
@@ -14123,7 +14138,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -14324,7 +14339,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
     allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
     !
@@ -15100,9 +15115,9 @@ module pp
       endif
       
       call listinit(filename=outfilename,handle=hand_a, &
-                    firstline='nstep time lOlmin pi1 pi2 pi3 pi4 pi5 pi6 pi7')
+                    firstline='nstep time ell pi1 pi2 pi3 pi4 pi5 pi6 pi7')
       do m=1,num_l
-        call listwrite(hand_a,l_lim(m)/l_min, Pi1(m), Pi2(m), &
+        call listwrite(hand_a,l_lim(m), Pi1(m), Pi2(m), &
                         Pi3(m), Pi4(m), Pi5(m),     &
                         Pi6(m), Pi7(m))
       enddo
@@ -15189,7 +15204,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -15313,7 +15328,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
     allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
     !
@@ -15768,7 +15783,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -15918,7 +15933,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare l,alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
     allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
     !
@@ -16539,7 +16554,7 @@ module pp
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
     use fftwlink
-    use commvar,only : time,nstep,im,jm,km
+    use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
     use utility,  only : listinit,listwrite
@@ -16727,7 +16742,7 @@ module pp
     if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
     !!!! Prepare alpha and others
     call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
-    l_min = 2*pi/im
+    l_min = 2*pi/ia
     allocate(sqrtalphas(num_alpha),dalphas(num_alpha))
     !
     do i=1,num_alpha
