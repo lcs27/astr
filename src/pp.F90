@@ -10737,7 +10737,7 @@ module pp
     !
     dvel(:,:,:,1,:)=grad(vel(:,:,:,1))
     dvel(:,:,:,2,:)=grad(vel(:,:,:,2))
-    if(ka==0)then
+    if(ka .ne. 0)then
       dvel(:,:,:,3,:)=grad(vel(:,:,:,3))
     endif
     !
@@ -11177,7 +11177,7 @@ module pp
     !
     dvel(:,:,:,1,:)=grad(vel(:,:,:,1))
     dvel(:,:,:,2,:)=grad(vel(:,:,:,2))
-    if(ka==0)then
+    if(ka .ne. 0)then
       dvel(:,:,:,3,:)=grad(vel(:,:,:,3))
     endif
     !
