@@ -5309,6 +5309,7 @@ module pp
     use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
+    use solver,    only : refcal
     use utility,  only : listinit,listwrite
     use parallel, only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
     include 'fftw3-mpi.f03'
@@ -5352,6 +5353,8 @@ module pp
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
     !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
     !
     allocate(vel(0:im,0:jm,0:km,1:2), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
@@ -5682,6 +5685,7 @@ module pp
     use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
+    use solver,    only : refcal
     use utility,  only : listinit,listwrite
     use parallel, only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
     include 'fftw3-mpi.f03'
@@ -5724,6 +5728,8 @@ module pp
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
     !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
     !
     allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
@@ -6103,6 +6109,7 @@ module pp
     use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
+    use solver,    only : refcal
     use utility,  only : listinit,listwrite
     use parallel, only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
     include 'fftw3-mpi.f03'
@@ -6146,6 +6153,8 @@ module pp
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
     !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
     !
     allocate(vel(0:im,0:jm,0:km,1:2), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
@@ -6467,6 +6476,7 @@ module pp
     use commvar,only : time,nstep,im,jm,km,ia,ja,ka
     use commarray, only: vel, rho, prs
     use hdf5io
+    use solver,    only : refcal
     use utility,  only : listinit,listwrite
     use parallel, only : bcast, pmax, pmin, psum, lio, parallelini, mpistop
     include 'fftw3-mpi.f03'
@@ -6509,6 +6519,8 @@ module pp
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
     !
+    call refcal
+    if(mpirank==0)  print*, '** refcal done!'
     !
     allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
