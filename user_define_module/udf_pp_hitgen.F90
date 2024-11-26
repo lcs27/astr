@@ -1,6 +1,6 @@
 !+---------------------------------------------------------------------+
 !| This module contains subroutines for post-process concerning        |
-!| physical SGS method for energy flux calculation.                    |
+!| initial field generating.                                           |
 !+---------------------------------------------------------------------+
 !| ==============                                                      |
 !| CHANGE RECORD                                                       |
