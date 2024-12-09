@@ -988,8 +988,8 @@ module readwrite
   !
   subroutine readic
     !
-    use commvar, only: ickmax,forcek,icamplitude,lforce,forceamp,numftheta,&
-                      icsolenoidal,icdilatational,forcekT
+    use commvar, only: ickmax,icamplitude,icsolenoidal,icdilatational,lforce,&
+                      forcek,forcespes,forcesped
     use parallel,only: bcast
     !
     ! local data
@@ -1008,9 +1008,13 @@ module readwrite
       read(fh,'(/)')
       read(fh,*)lforce
       read(fh,'(/)')
-      read(fh,*)forcek,forceamp,numftheta,forcekT
+      read(fh,*)forcek,forcespes,forcesped
       close(fh)
       print*,' >> ',trim(inputfile),' ... done'
+      !
+      if(lforce)then
+        print*,"Force activated!, at k= ", forcek, 'with Es = ', forcespes, 'and Ed=', forcesped
+      endif
       !
     endif
     !
@@ -1020,9 +1024,8 @@ module readwrite
     call bcast(icdilatational)
     call bcast(lforce)
     call bcast(forcek)
-    call bcast(forceamp)
-    call bcast(numftheta)
-    call bcast(forcekT)
+    call bcast(forcespes)
+    call bcast(forcesped)
     !
   end subroutine readic
   !+-------------------------------------------------------------------+

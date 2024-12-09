@@ -786,27 +786,22 @@ module userdefine
   !| 13-06-2023: Created by Yifan Xu @ Peking University               |
   !+-------------------------------------------------------------------+
   subroutine udf_src
-    ! 
+    !
     use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,rkstep,xmax,ymax,zmax,&
-                        lforce,nstep,forcek,forceamp,numftheta,forcekT
-    use parallel, only : lio,mpirank,psum,bcast
-    use commarray,only : rho,tmp,vel,qrhs,x,jacob,Ak,phik 
+                         lforce,nstep
+    use parallel, only : lio,psum,bcast
+    use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep
     use utility,  only : listinit,listwrite
-    use constdef,only: pi
+    use constdef, only : pi
     !
     logical,save :: linit=.true.
     integer,save :: hand_force
-    integer,save :: last_step
+    integer,save :: last_step = -1
     ! Random iniforce generation
     integer :: NumTheta, n, i,j,k
-    real(8) :: theta, k1, k2
-    real(8) :: power,rsamples
-    real(8),allocatable,dimension(:,:,:,:) :: force
-    !
-    NumTheta = 200
-    last_step = -1
-    !
-    allocate(force(0:im,0:jm,0:0,1:2))
+    real(8) :: theta
+    real(8) :: power,rsamples,Tpower
+    real(8) :: alphas,alphad,forcekT
     !
     !
     if(lforce) then
@@ -815,7 +810,7 @@ module userdefine
         !
         if(lio) then
           !
-          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time power')
+          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time alphas alphad forcekT power')
           !
         endif
         !
@@ -823,59 +818,34 @@ module userdefine
         !
       endif
       !
-      !      
-      ! Generate random force
-      do j=1,jm
-      do i=1,im
-        force(i,j,0,1) = 0.d0
-        force(i,j,0,2) = 0.d0
-      end do
-      end do
-      !
-      !
-      !
-      do n=0, (NumTheta-1)
-        theta = n * 2 * pi / NumTheta
-        ! 
-        k1 = forcek * dcos(theta)
-        k2 = forcek * dsin(theta)
-        do j=1,jm
-        do i=1,im
-          force(i,j,0,1) = force(i,j,0,1) + forceamp * Ak(n) * k2 * dcos(k1 * x(i,j,0,1) + k2 * x(i,j,0,2) + phik(n))
-          force(i,j,0,2) = force(i,j,0,2) - forceamp * Ak(n) * k1 * dcos(k1 * x(i,j,0,1) + k2 * x(i,j,0,2) + phik(n))
-        end do
-        end do
-      end do
-      !
-      force(0,:,0,1) = force(im,:,0,1)
-      force(0,:,0,2) = force(im,:,0,2)
-      force(:,0,0,1) = force(:,jm,0,1)
-      force(:,0,0,2) = force(:,jm,0,2)
-        !
       if(last_step .ne. nstep) then
+        !
+        call udf_generate_force(alphas,alphad)
         ! Calculate power
         power = 0.0d0
+        Tpower = 0.0d0
         !
-        do j=0,jm
-        do i=0,im
-          power=power + force(i,j,0,1)*vel(i,j,0,1) + force(i,j,0,2)*vel(i,j,0,2)
-        enddo
-        enddo
+        if(ndims == 2)then
+          do j=1,jm
+          do i=1,im
+            power  = power  + rho(i,j,0)*(forcep(i,j,0,1)*vel(i,j,0,1) + forcep(i,j,0,2)*vel(i,j,0,2))
+            Tpower = Tpower + tmp(i,j,0)**4
+          enddo
+          enddo
+          !
+          rsamples=dble(ia*ja)
+        endif
         !
-        rsamples=dble(ia*ja)
-        power= psum(power)/rsamples
+        power = psum(power)/rsamples
+        Tpower = psum(Tpower)/rsamples
+        forcekT = power/Tpower
         !
         if(lio) then 
-          call listwrite(hand_force,abs(power))
+          call listwrite(hand_force,alphas,alphad,forcekT,power)
         endif
         !
         last_step = nstep
         !
-      endif
-      !
-      ! Inverse if the power is negative
-      if (power<0) then
-        force(:,:,:,:) = - force(:,:,:,:)
       endif
       !
       ! Add in qrhs and calculate power
@@ -885,11 +855,12 @@ module userdefine
       do i=0,im
         !
         !
-        qrhs(i,j,k,2)=qrhs(i,j,k,2)+rho(i,j,k)*force(i,j,k,1)*jacob(i,j,k)
-        qrhs(i,j,k,3)=qrhs(i,j,k,3)+rho(i,j,k)*force(i,j,k,2)*jacob(i,j,k)
-        !
-        qrhs(i,j,k,5)=qrhs(i,j,k,5)+rho(i,j,k)*( force(i,j,k,1)*vel(i,j,k,1) + &
-                                                force(i,j,k,2)*vel(i,j,k,2) )*jacob(i,j,k)
+        qrhs(i,j,k,2)=qrhs(i,j,k,2)+rho(i,j,k)*forcep(i,j,k,1)*jacob(i,j,k)
+        qrhs(i,j,k,3)=qrhs(i,j,k,3)+rho(i,j,k)*forcep(i,j,k,2)*jacob(i,j,k)
+        qrhs(i,j,k,4)=qrhs(i,j,k,4)+rho(i,j,k)*forcep(i,j,k,3)*jacob(i,j,k)
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)+rho(i,j,k)*(forcep(i,j,k,1)*vel(i,j,k,1) + &
+                                                forcep(i,j,k,2)*vel(i,j,k,2) + &
+                                                forcep(i,j,k,3)*vel(i,j,k,3) )*jacob(i,j,k)
         !
         !
         ! temperation dissipation
@@ -900,8 +871,6 @@ module userdefine
       end do
       !
       !
-      deallocate(force)
-      !
     endif
     !
   end subroutine udf_src
@@ -909,52 +878,235 @@ module userdefine
   !| The end of the subroutine udf_src.                                |
   !+-------------------------------------------------------------------+
   !
-  subroutine udf_generate_Aphi
+  subroutine udf_generate_force(alphas, alphad)
     !
-    use commvar, only: numftheta,lforce
-    use commarray, only: Ak, phik 
-    use parallel, only : lio,mpirank,psum,bcast
-    use constdef,only: pi
-    !
-    real(8) :: ranAk, ranphik
-    integer :: n,seedsize,clock,irandom
-    integer,allocatable :: seed(:)
-    !
-    if(lforce) then
-      if(allocated(Ak)) then
-        deallocate(Ak)
-      endif
-
-      if(allocated(phik)) then
-        deallocate(phik)
-      endif
-      !
-      allocate(Ak(0:(numftheta-1)),phik(0:(numftheta-1)))
-      !
-      if(mpirank==0) then
-        !
-        call random_seed(size=seedsize) ! find out size of seed
-        allocate(seed(seedsize))
-        CALL SYSTEM_CLOCK(COUNT=clock)
-        seed = clock  +  37  *  (/ (irandom  -  1, irandom = 1, seedsize) /)
-        call random_seed(put=seed) ! set current seed
-        deallocate(seed)           ! safe
-        !
-        do n=0, (numftheta-1)
-          ! Generate random amplitude and phase
-          !
-          call random_number(ranAk)
-          call random_number(ranphik)
-          Ak(n) = 1 + (ranAk-0.5)*0.1
-          phik(n) = 2*pi*ranphik
-        end do
-      end if
-      !
-      call bcast(Ak)
-      call bcast(phik)
+    use commvar, only: ndims
+    real(8), intent(out) :: alphas, alphad
+    !   
+    if(ndims == 2) then
+      call udf_generate_force_2D(alphas, alphad)
+    else
+      stop "Not implemented error! udf_generate_force3D"
     endif
     !
-  end subroutine udf_generate_Aphi
+  end subroutine udf_generate_force
+    !
+  subroutine udf_generate_force_2D(alphas, alphad)
+    !
+    use, intrinsic :: iso_c_binding
+    use commvar,        only : forcek,forcespes,forcesped,im,jm,ia,ja
+    use commarray,      only : vel, forcep
+    use fftwlink,       only : jmf, alloc_local, iafftw, jmfftw, fftw_grid_fence, fftw_fence_grid, jafftw, j0f
+    use parallel,       only : MPI_COMM_WORLD, psum, mpiright, mpiup, mpitag, mpileft, mpidown
+    use udf_tool,       only : GenerateWave, kint
+    use mpi
+    include 'fftw3-mpi.f03'
+    !
+    real(8), intent(out) :: alphas, alphad
+    real(8), allocatable, dimension(:,:) :: localvel1t, localvel2t, force1t, force2t
+    real(8), allocatable, dimension(:,:) :: fftvel1, fftvel2, fftforce1, fftforce2
+    type(C_PTR) :: forward_plan, backward_plan, c_u1spe, c_u2spe, c_u1d, c_u2d, c_u1s, c_u2s
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1spe,u2spe
+    real(8), allocatable, dimension(:,:) :: k1,k2
+    complex(8), allocatable, dimension(:,:) :: usspe,udspe
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1d,u2d,u1s,u2s
+    real(8) :: Ed, Es, dk, kk
+    integer :: i,j,ierr
+    real(8), allocatable, dimension(:) :: sendim,recvim, sendjm,recvjm
+    integer :: status(mpi_status_size) 
+    !
+    dk = 1.d0
+    !
+    !
+    allocate(localvel1t(1:jm,1:im),localvel2t(1:jm,1:im))
+    allocate(force1t(1:jm,1:im),force2t(1:jm,1:im))
+    allocate(fftvel1(1:ia,1:jmf),fftvel2(1:ia,1:jmf))
+    allocate(fftforce1(1:ia,1:jmf),fftforce2(1:ia,1:jmf))
+    !
+    do j=1,jm
+    do i=1,im
+      !
+      localvel1t(j,i)=vel(i,j,0,1)
+      localvel2t(j,i)=vel(i,j,0,2)
+      !
+    enddo
+    enddo
+    !
+    !
+    fftvel1 = fftw_grid_fence(localvel1t)
+    fftvel2 = fftw_grid_fence(localvel2t)
+    !
+    ! Begin FFTW
+      !
+    c_u1spe = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1spe, u1spe, [iafftw,jmfftw])
+    c_u2spe = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2spe, u2spe, [iafftw,jmfftw])
+    !
+    !!!! Do S-C decomposition
+    c_u1d = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1d, u1d, [iafftw,jmfftw])
+    c_u2d = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2d, u2d, [iafftw,jmfftw])
+    c_u1s = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1s, u1s, [iafftw,jmfftw])
+    c_u2s = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2s, u2s, [iafftw,jmfftw])
+    ! planning
+    forward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1spe,u1spe, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+    backward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1spe,u1spe, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+    !
+    !
+    do j=1,jmf
+    do i=1,ia
+        !
+        u1spe(i,j)=CMPLX(fftvel1(i,j),0.d0,C_INTPTR_T);
+        u2spe(i,j)=CMPLX(fftvel2(i,j),0.d0,C_INTPTR_T);
+        !
+    end do
+    end do
+    !
+    !
+    !!!! Do 2d FFT
+    call fftw_mpi_execute_dft(forward_plan,u1spe,u1spe)
+    call fftw_mpi_execute_dft(forward_plan,u2spe,u2spe)
+    !
+    do j=1,jmf
+    do i=1,ia
+        !
+        u1spe(i,j)=u1spe(i,j)/(1.d0*ia*ja)
+        u2spe(i,j)=u2spe(i,j)/(1.d0*ia*ja)
+        !
+    end do
+    end do
+    !
+    ! Wavenumber calculation
+    allocate(k1(1:ia,1:jmf),k2(1:ia,1:jmf))
+    call GenerateWave(ia,jmf,ia,ja,j0f,k1,k2)
+    !
+    allocate(usspe(1:ia,1:jmf),udspe(1:ia,1:jmf))
+    Ed = 0.d0
+    Es = 0.d0
+    !
+    do j=1,jmf
+    do i=1,ia
+        kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
+        if(kint(kk,dk,2,1.d0)==forcek)then
+            usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
+            udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
+            u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
+            u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
+            u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
+            u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+            Es = Es + usspe(i,j)*conjg(usspe(i,j))/2
+            Ed = Ed + udspe(i,j)*conjg(udspe(i,j))/2
+        else
+            usspe(i,j) = 0.d0
+            udspe(i,j) = 0.d0
+            u1d(i,j)= 0.d0
+            u2d(i,j)= 0.d0
+            u1s(i,j)= 0.d0
+            u2s(i,j)= 0.d0
+        endif
+        !
+    end do
+    end do
+    !
+    call fftw_mpi_execute_dft(backward_plan,u1d,u1d)
+    call fftw_mpi_execute_dft(backward_plan,u2d,u2d)
+    call fftw_mpi_execute_dft(backward_plan,u1s,u1s)
+    call fftw_mpi_execute_dft(backward_plan,u2s,u2s)
+    !
+    Es = psum(Es)
+    Ed = psum(Ed)
+    !
+    alphas = min(max(forcespes/Es-1.d0, 0.d0),10.d0)
+    alphad = min(max(forcesped/Ed-1.d0, 0.d0),10.d0)
+    !
+    !
+    do j=1,jmf
+    do i=1,ia
+        fftforce1(i,j) = alphas * real(u1s(i,j)) + alphad * real(u1d(i,j))
+        fftforce2(i,j) = alphas * real(u2s(i,j)) + alphad * real(u2d(i,j))
+    enddo
+    enddo
+    !
+    force1t = fftw_fence_grid(fftforce1)
+    force2t = fftw_fence_grid(fftforce2)
+    !
+    forcep = 0.d0
+    !
+    !
+    do j=1,jm
+    do i=1,im
+      forcep(i,j,0,1) = force1t(j,i)
+      forcep(i,j,0,2) = force2t(j,i)
+    enddo
+    enddo
+    !
+    call mpi_sendrecv(forcep(im,jm,0,1),1,mpi_real8,mpiright,mpitag, &
+                      forcep(0,jm,0,1),1,mpi_real8,mpileft,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    call mpi_sendrecv(forcep(im,jm,0,2),1,mpi_real8,mpiright,mpitag, &
+                      forcep(0,jm,0,2),1,mpi_real8,mpileft,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    call mpi_sendrecv(forcep(im,jm,0,1),1,mpi_real8,mpiup,mpitag,    &
+                      forcep(im,0,0,1),1,mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    call mpi_sendrecv(forcep(im,jm,0,2),1,mpi_real8,mpiup,mpitag,    &
+                      forcep(im,0,0,2),1,mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    allocate(sendim(0:im),recvim(0:im),sendjm(0:jm),recvjm(0:jm))
+    !
+    sendim(0:im) = forcep(0:im,jm,0,1)
+    call mpi_sendrecv(sendim,im+1,mpi_real8,mpiup,mpitag,     &
+                      recvim,im+1,mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    forcep(0:im,0,0,1) = recvim(0:im)
+    mpitag=mpitag+1
+    !
+    sendim(0:im) = forcep(0:im,jm,0,2)
+    call mpi_sendrecv(sendim,im+1,mpi_real8,mpiup,mpitag,     &
+                      recvim,im+1,mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    forcep(0:im,0,0,2) = recvim(0:im)
+    !
+    sendjm(0:jm) = forcep(im,0:jm,0,1)
+    call mpi_sendrecv(sendjm,jm+1,mpi_real8,mpiright,mpitag,  &
+                      recvjm,jm+1,mpi_real8,mpileft,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    forcep(0,0:jm,0,1) = recvjm(0:jm)
+    !
+    sendjm(0:jm) = forcep(im,0:jm,0,2)
+    call mpi_sendrecv(sendjm,jm+1,mpi_real8,mpiright,mpitag,  &
+                      recvjm,jm+1,mpi_real8,mpileft,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    forcep(0,0:jm,0,2) = recvjm(0:jm)
+    mpitag=mpitag+1
+    !
+    call fftw_destroy_plan(forward_plan)
+    call fftw_destroy_plan(backward_plan)
+    call fftw_mpi_cleanup()
+    call fftw_free(c_u1spe)
+    call fftw_free(c_u2spe)
+    call fftw_free(c_u1d)
+    call fftw_free(c_u1s)
+    call fftw_free(c_u2d)
+    call fftw_free(c_u2s)
+    !
+    deallocate(localvel1t, localvel2t, force1t, force2t)
+    deallocate(fftvel1, fftvel2, fftforce1, fftforce2)
+    deallocate(k1,k2,usspe,udspe)
+    deallocate(sendim,sendjm,recvim,recvjm)
+    !
+  end subroutine udf_generate_force_2D
   !+-------------------------------------------------------------------+
   !| This subroutine is to defined an output by a user.                | 
   !+-------------------------------------------------------------------+

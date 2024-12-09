@@ -179,10 +179,12 @@ module commvar
   character(len=4) :: testmode
   real(8) :: xcav_left,xcav_right,xcav2_left,xcav2_right,ycav_upper
   !
-  integer :: ickmax, forcek, numftheta
-  logical :: lforce
+  integer :: ickmax
+  real(8) :: icamplitude,icsolenoidal,icdilatational
   !
-  real(8) :: icamplitude, forceamp,icsolenoidal,icdilatational,forcekT
+  logical :: lforce
+  integer :: forcek
+  real(8) :: forcespes,forcesped
   !
 #ifdef COMB
   logical :: lcomb
