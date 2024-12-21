@@ -788,21 +788,31 @@ module userdefine
   subroutine udf_src
     !
     use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,rkstep,xmax,ymax,zmax,&
-                         lforce,nstep
+                         lforce,nstep, forcenum
     use parallel, only : lio,psum,bcast
-    use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep
+    use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep,forcek
     use utility,  only : listinit,listwrite
     use constdef, only : pi
     !
     logical,save :: linit=.true.
     integer,save :: hand_force
+    integer, allocatable, dimension(:), save :: hand_forcea
     integer,save :: last_step = -1
     ! Random iniforce generation
-    integer :: NumTheta, n, i,j,k
+    integer :: NumTheta, n, i,j,k,t
     real(8) :: theta
     real(8) :: power,rsamples,Tpower
-    real(8) :: alphas,alphad,forcekT
+    real(8) :: forcekT
+    real(8), allocatable,dimension(:) :: alphas, alphad
+    character(len=4) :: forcename
     !
+    if(.not. allocated(hand_forcea))then
+      allocate(hand_forcea(1:forcenum))
+    else
+      if(size(hand_forcea) .ne. forcenum) stop 'Error in hand_forcea @ udf_src'
+    endif
+    !
+    allocate(alphas(1:forcenum),alphad(1:forcenum))
     !
     if(lforce) then
       !
@@ -810,7 +820,13 @@ module userdefine
         !
         if(lio) then
           !
-          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time alphas alphad forcekT power')
+          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time forcekT power')
+          !
+          do t=1,forcenum
+            write(forcename,'(i4.4)')t
+            call listinit(filename='log/forcestat'//forcename//'.dat',handle =hand_forcea(t), &
+             firstline='nstep time forcek alphas alphad')
+          enddo
           !
         endif
         !
@@ -841,7 +857,11 @@ module userdefine
         forcekT = power/Tpower
         !
         if(lio) then 
-          call listwrite(hand_force,alphas,alphad,forcekT,power)
+          call listwrite(hand_force,forcekT,power)
+          !
+          do t=1,forcenum
+            call listwrite(hand_forcea(t),real(forcek(t),8),alphas(t),alphad(t))
+          enddo
         endif
         !
         last_step = nstep
@@ -881,7 +901,7 @@ module userdefine
   subroutine udf_generate_force(alphas, alphad)
     !
     use commvar, only: ndims
-    real(8), intent(out) :: alphas, alphad
+    real(8), allocatable, dimension(:), intent(out) :: alphas, alphad
     !   
     if(ndims == 2) then
       call udf_generate_force_2D(alphas, alphad)
@@ -894,30 +914,34 @@ module userdefine
   subroutine udf_generate_force_2D(alphas, alphad)
     !
     use, intrinsic :: iso_c_binding
-    use commvar,        only : forcek,forcespes,forcesped,im,jm,ia,ja
-    use commarray,      only : vel, forcep
+    use commvar,        only : forcenum,hypervisk,hypervismiu,im,jm,ia,ja
+    use commarray,      only : vel, forcep,forcek,forcespes,forcesped
     use fftwlink,       only : jmf, alloc_local, iafftw, jmfftw, fftw_grid_fence, fftw_fence_grid, jafftw, j0f
     use parallel,       only : MPI_COMM_WORLD, psum, mpiright, mpiup, mpitag, mpileft, mpidown
     use udf_tool,       only : GenerateWave, kint
     use mpi
     include 'fftw3-mpi.f03'
     !
-    real(8), intent(out) :: alphas, alphad
+    real(8), allocatable, dimension(:), intent(out):: alphas, alphad
     real(8), allocatable, dimension(:,:) :: localvel1t, localvel2t, force1t, force2t
     real(8), allocatable, dimension(:,:) :: fftvel1, fftvel2, fftforce1, fftforce2
-    type(C_PTR) :: forward_plan, backward_plan, c_u1spe, c_u2spe, c_u1d, c_u2d, c_u1s, c_u2s
+    type(C_PTR) :: forward_plan, backward_plan, c_u1spe, c_u2spe, c_fftforce1, c_fftforce2
     complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1spe,u2spe
     real(8), allocatable, dimension(:,:) :: k1,k2
-    complex(8), allocatable, dimension(:,:) :: usspe,udspe
-    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1d,u2d,u1s,u2s
-    real(8) :: Ed, Es, dk, kk
-    integer :: i,j,ierr
+    complex(8), allocatable, dimension(:,:) :: usspe,udspe,u1s,u2s,u1d,u2d
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: fftforce1c,fftforce2c
+    real(8) ::  dk, kk
+    integer :: i,j,ierr,allkmax,kOrdinal,t
+    real(8), allocatable, dimension(:) :: Ed, Es
     real(8), allocatable, dimension(:) :: sendim,recvim, sendjm,recvjm
     integer :: status(mpi_status_size) 
     !
     dk = 1.d0
     !
+    allkmax=ceiling(real(sqrt(2.d0)/3*min(ia,ja))/dk)
     !
+    if(.not. allocated(alphas)) allocate(alphas(1:forcenum))
+    if(.not. allocated(alphad)) allocate(alphad(1:forcenum))
     allocate(localvel1t(1:jm,1:im),localvel2t(1:jm,1:im))
     allocate(force1t(1:jm,1:im),force2t(1:jm,1:im))
     allocate(fftvel1(1:ia,1:jmf),fftvel2(1:ia,1:jmf))
@@ -944,14 +968,11 @@ module userdefine
     call c_f_pointer(c_u2spe, u2spe, [iafftw,jmfftw])
     !
     !!!! Do S-C decomposition
-    c_u1d = fftw_alloc_complex(alloc_local)
-    call c_f_pointer(c_u1d, u1d, [iafftw,jmfftw])
-    c_u2d = fftw_alloc_complex(alloc_local)
-    call c_f_pointer(c_u2d, u2d, [iafftw,jmfftw])
-    c_u1s = fftw_alloc_complex(alloc_local)
-    call c_f_pointer(c_u1s, u1s, [iafftw,jmfftw])
-    c_u2s = fftw_alloc_complex(alloc_local)
-    call c_f_pointer(c_u2s, u2s, [iafftw,jmfftw])
+    c_fftforce1 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_fftforce1, fftforce1c, [iafftw,jmfftw])
+    c_fftforce2 = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_fftforce2, fftforce2c, [iafftw,jmfftw])
+    !
     ! planning
     forward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1spe,u1spe, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
     backward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1spe,u1spe, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
@@ -985,49 +1006,67 @@ module userdefine
     call GenerateWave(ia,jmf,ia,ja,j0f,k1,k2)
     !
     allocate(usspe(1:ia,1:jmf),udspe(1:ia,1:jmf))
+    allocate(u1s(1:ia,1:jmf),u1d(1:ia,1:jmf),u2s(1:ia,1:jmf),u2d(1:ia,1:jmf))
+    allocate(Es(0:allkmax),Ed(0:allkmax))
     Ed = 0.d0
     Es = 0.d0
     !
     do j=1,jmf
     do i=1,ia
         kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
-        if(kint(kk,dk,2,1.d0)==forcek)then
-            usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
-            udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
-            u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
-            u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
-            u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
-            u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
-            Es = Es + usspe(i,j)*conjg(usspe(i,j))/2
-            Ed = Ed + udspe(i,j)*conjg(udspe(i,j))/2
-        else
-            usspe(i,j) = 0.d0
-            udspe(i,j) = 0.d0
-            u1d(i,j)= 0.d0
-            u2d(i,j)= 0.d0
-            u1s(i,j)= 0.d0
-            u2s(i,j)= 0.d0
+        usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
+        udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
+        u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
+        u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
+        u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
+        u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+        kOrdinal = kint(kk,dk,2,1.d0)
+        if(kOrdinal <= allkmax)then
+          Es(kOrdinal) = Es(kOrdinal) + usspe(i,j)*conjg(usspe(i,j))/2
+          Ed(kOrdinal) = Ed(kOrdinal) + udspe(i,j)*conjg(udspe(i,j))/2
         endif
         !
     end do
     end do
     !
-    call fftw_mpi_execute_dft(backward_plan,u1d,u1d)
-    call fftw_mpi_execute_dft(backward_plan,u2d,u2d)
-    call fftw_mpi_execute_dft(backward_plan,u1s,u1s)
-    call fftw_mpi_execute_dft(backward_plan,u2s,u2s)
     !
-    Es = psum(Es)
-    Ed = psum(Ed)
+    do i=0,allkmax
+      Es(i) = psum(Es(i))
+      Ed(i) = psum(Ed(i))
+    enddo
     !
-    alphas = min(max(forcespes/Es-1.d0, 0.d0),10.d0)
-    alphad = min(max(forcesped/Ed-1.d0, 0.d0),10.d0)
+    do t=1,forcenum
+      alphas(t) = min(max(forcespes(t)/Es(forcek(t))-1.d0, 0.d0),10.d0)
+      alphad(t) = min(max(forcesped(t)/Ed(forcek(t))-1.d0, 0.d0),10.d0)
+    enddo
     !
+    !
+    fftforce1c = 0.d0
+    fftforce2c = 0.d0
+    do j=1,jmf
+    do i=1,ia
+      kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
+      do t=1,forcenum
+        if(kint(kk,dk,2,1.d0)==forcek(t))then
+          fftforce1c(i,j) = fftforce1c(i,j) + alphas(t) * u1s(i,j) + alphad(t) * u1d(i,j)
+          fftforce2c(i,j) = fftforce2c(i,j) + alphas(t) * u2s(i,j) + alphad(t) * u2d(i,j)
+        endif
+      enddo
+      !
+      if(kk>hypervisk)then
+        fftforce1c(i,j) = fftforce1c(i,j) - hypervismiu * kk**4 * u1spe(i,j)
+        fftforce2c(i,j) = fftforce2c(i,j) - hypervismiu * kk**4 * u2spe(i,j)
+      endif
+    enddo
+    enddo
+    !
+    call fftw_mpi_execute_dft(backward_plan,fftforce1c,fftforce1c)
+    call fftw_mpi_execute_dft(backward_plan,fftforce2c,fftforce2c)
     !
     do j=1,jmf
     do i=1,ia
-        fftforce1(i,j) = alphas * real(u1s(i,j)) + alphad * real(u1d(i,j))
-        fftforce2(i,j) = alphas * real(u2s(i,j)) + alphad * real(u2d(i,j))
+      fftforce1(i,j) = real(fftforce1c(i,j))
+      fftforce2(i,j) = real(fftforce2c(i,j))
     enddo
     enddo
     !
@@ -1096,14 +1135,12 @@ module userdefine
     call fftw_mpi_cleanup()
     call fftw_free(c_u1spe)
     call fftw_free(c_u2spe)
-    call fftw_free(c_u1d)
-    call fftw_free(c_u1s)
-    call fftw_free(c_u2d)
-    call fftw_free(c_u2s)
+    call fftw_free(c_fftforce1)
+    call fftw_free(c_fftforce2)
     !
     deallocate(localvel1t, localvel2t, force1t, force2t)
     deallocate(fftvel1, fftvel2, fftforce1, fftforce2)
-    deallocate(k1,k2,usspe,udspe)
+    deallocate(k1,k2,usspe,udspe, u1d, u1s, u2d, u2s)
     deallocate(sendim,sendjm,recvim,recvjm)
     !
   end subroutine udf_generate_force_2D

@@ -31,6 +31,9 @@ module commarray
   real(8),allocatable,dimension(:,:,:) :: tke,omg,miut,res12,ssf
   real(8),allocatable,dimension(:,:,:,:) :: dtke,domg
   !
+  integer,allocatable,dimension(:) :: forcek
+  real(8),allocatable,dimension(:) :: forcespes,forcesped
+  !
   !+---------------------+---------------------------------------------+
   !|                   x | coordinates.                                |
   !|               jacob | geometrical Jacobian.                       |

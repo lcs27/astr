@@ -80,7 +80,7 @@ module udf_pp_force
         use readwrite, only : readinput, readic
         use fftwlink
         use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,time,&
-                         nstep,forcek,forcespes
+                         nstep
         use commarray, only : vel, rho, forcep
         use hdf5io
         use solver,    only : refcal
@@ -102,10 +102,14 @@ module udf_pp_force
         real(8) :: Ed, Es, dk, kk, alpha
         integer :: i,j,n
         integer :: values(8)
+        integer :: forcek=5
+        real(8) :: forcespes=0.0035d0
         ! 
         call readinput
         !
         call readic
+        !
+        if(mpirank==0) print*, "Warning, this is only a test and fix forcek=", forcek, "forcespes=", forcespes
         call refcal
         if(mpirank==0)  print*, '** refcal done!'
         !
@@ -317,7 +321,7 @@ module udf_pp_force
         use, intrinsic :: iso_c_binding
         use readwrite, only : readinput, readic
         use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,time,&
-                         nstep,forcek,forcespes
+                         nstep
         use commarray, only : vel, rho, forcep
         use hdf5io
         use solver,    only : refcal
@@ -342,10 +346,14 @@ module udf_pp_force
         real(8) :: Ed, Es, dk, kk, alpha
         integer :: i,j,n
         integer :: values(8)
+        integer :: forcek=5
+        real(8) :: forcespes=0.0035d0
         ! 
         call readinput
         !
         call readic
+        !
+        if(mpirank==0) print*, "Warning, this is only a test and fix forcek=", forcek, "forcespes=", forcespes
         !
         modeio='h'
         !
@@ -569,7 +577,7 @@ module udf_pp_force
     subroutine force_newspectraltest(thefilenumb)
         !
         use readwrite, only : readinput, readic
-        use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,time,nstep
+        use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,time,nstep,forcenum
         use commarray, only : vel, rho, forcep
         use hdf5io
         use solver,    only : refcal
@@ -584,11 +592,14 @@ module udf_pp_force
         character(len=1) :: modeio
         character(len=128) :: outfilename
         integer :: values(8), ierr
-        real(8) :: alphas, alphad
+        real(8), allocatable,dimension(:) :: alphas, alphad
+        !
         ! 
         call readinput
         !
         call readic
+        !
+        allocate(alphas(1:forcenum), alphad(1:forcenum))
         !
         modeio='h'
         !
@@ -640,9 +651,8 @@ module udf_pp_force
         call date_and_time(values=values)
         if(mpirank==0)  print *,'Finish!' , values(5),":",values(6),":",values(7),":",values(8)
         !
-        print *, mpirank, forcep(0,2,0,1), forcep(1,2,0,1), forcep(im-1,2,0,1), forcep(im,2,0,1)
+        if(mpirank==0) print *, alphas(1), alphad(1)
         !
-        if(mpirank==0) print *,'>>> alphas = ', alphas, 'alphad = ', alphad
         !
         if (thefilenumb .ne. 0) then
             outfilename = 'pp/forcenewspectra'//stepname//'.h5'
@@ -662,7 +672,7 @@ module udf_pp_force
         !
         use readwrite, only : readinput, readic
         use commvar,  only : im,jm,km,hm,ndims,deltat,ia,ja,ka,time,&
-                         nstep,forcek,forcespes
+                         nstep
         use commarray, only : vel, rho, x, forcep
         use hdf5io
         use geom,      only : geomcal
@@ -684,10 +694,14 @@ module udf_pp_force
         character(len=128) :: outfilename
         integer :: ierr
         integer :: values(8)
+        integer :: forcek=5
+        real(8) :: forcespes=0.0035d0
         !
         call readinput
         !
         call readic
+        !
+        if(mpirank==0) print*, "Warning, this is only a test and fix forcek=", forcek, "forcespes=", forcespes
         !
         call mpisizedis
         if(mpirank==0) print*, '** mpisizedis done!'

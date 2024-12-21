@@ -206,7 +206,7 @@ module udf_pp_spectra
     !
     call mpi_barrier(mpi_comm_world,ierr)
     !
-    if(mpirank==0)  print *, "Field read finish!"
+    if(mpirank==0)  print *, "** Field read finish!"
     !
     ! Calculate average
     u1mean = 0.0d0

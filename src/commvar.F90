@@ -183,8 +183,9 @@ module commvar
   real(8) :: icamplitude,icsolenoidal,icdilatational
   !
   logical :: lforce
-  integer :: forcek
-  real(8) :: forcespes,forcesped
+  integer :: forcenum
+  !
+  real(8) :: hypervisk,hypervismiu
   !
 #ifdef COMB
   logical :: lcomb
