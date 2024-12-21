@@ -181,8 +181,8 @@ module userdefine
   subroutine udf_stalist
     !
     use constdef
-    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km
-    use commarray,only : vel,rho,tmp,dvel,q,vorbis,dvor
+    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf
+    use commarray,only : vel,rho,tmp,dvel,q,vorbis,dvor,prs
     use fludyna,  only : miucal,sos
     use comsolver,only : solvrinit,grad
     use utility,  only : listinit,listwrite
@@ -205,10 +205,11 @@ module userdefine
     real(8) :: rhoavg,rho2nd,w2drho
     real(8) :: urms,energy,taylorlength,kolmoglength,Retaylor,machrms,macht,rhoe,skewness,du2,du3,ReL
     real(8) :: mfpath,R ! mfpath = mean free path
+    real(8) :: rhoprime,Kw,Krho,ptheta,uutheta,rhouugrad
     !
     logical :: fex
     logical,save :: linit=.true.
-    integer,save :: hand_fs,hand_mom2nd,hand_mom3rd,hand_skew,hand_en
+    integer,save :: hand_fs,hand_mom2nd,hand_mom3rd,hand_skew,hand_en,hand_weakly
     !
     if(ka==0) then 
       ! 2D part
@@ -227,6 +228,8 @@ module userdefine
                         firstline='ns time th o ps f th2 ps2 f2 oth o2 ps2th f2th th3 o2th m11s m22s m11c m22c')
           call listinit(filename='log/fenergy.dat',handle=hand_en, &
                         firstline='ns time rhoavg rho2nd w2drho')
+          call listinit(filename='log/weakly.dat',handle=hand_weakly, &
+                        firstline='ns time Kw Krho ptheta uutheta rhouugrad')
         endif
         !
         linit=.false.
@@ -286,6 +289,11 @@ module userdefine
       rhoavg=0.d0
       rho2nd=0.d0
       w2drho=0.d0
+      Kw=0.d0
+      Krho=0.d0
+      ptheta=0.d0
+      uutheta=0.d0
+      rhouugrad=0.d0
       !
       k=0
       do j=0,jm
@@ -306,6 +314,7 @@ module userdefine
         ! This point values
         !
         miu=miucal(tmp(i,j,k))/Reynolds
+        rhoprime = rho(i,j,k) - roinf
         !
         du11=dvel(i,j,k,1,1)
         du12=dvel(i,j,k,1,2)
@@ -394,6 +403,15 @@ module userdefine
         !
         mfpath = max(mfpath,2.d0*miu/rho(i,j,k)/0.921/sqrt(3.d0*R*tmp(i,j,k)))
         !
+        Kw       = Kw+ 0.5d0*roinf*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)
+        Krho     = Krho + 0.5d0*rhoprime*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)
+        ptheta   = ptheta + prs(i,j,k)*div
+        uutheta  = uutheta + 0.5d0*roinf*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)*div
+        rhouugrad= rhouugrad + rhoprime * (vel(i,j,k,1)*vel(i,j,k,1)*du11 + &
+                                           vel(i,j,k,1)*vel(i,j,k,2)*du12 + &
+                                           vel(i,j,k,2)*vel(i,j,k,1)*du21 + &
+                                           vel(i,j,k,2)*vel(i,j,k,2)*du22)
+        !
       enddo
       enddo
       !
@@ -462,6 +480,12 @@ module userdefine
       rho2nd = psum(rho2nd)/rsamples
       w2drho = psum(w2drho)/rsamples
       !
+      Kw       = psum(Kw)/rsamples
+      Krho     = psum(Krho)/rsamples
+      ptheta   = psum(ptheta)/rsamples
+      uutheta  = psum(uutheta)/rsamples
+      rhouugrad= psum(rhouugrad)/rsamples
+      !
       if(lio) then 
         call listwrite(hand_fs,urms,ens,taylorlength,kolmoglength, &
                         kolmloc, Retaylor,ReL,dissa,mfpath,machrms, &
@@ -473,6 +497,7 @@ module userdefine
                       dPhidPhi,OmegadivU,OmegaOmega,dPsidPsidivU,dPhidPhidivU,&
                       divUdivUdivU,OmegaOmegadivU,m11m11,m22m22,m11m11m11,m22m22m22)
         call listwrite(hand_en,rhoavg,rho2nd,w2drho)
+        call listwrite(hand_weakly,Kw,Krho,ptheta,uutheta,rhouugrad)
       endif
     else
       ! 3D part
