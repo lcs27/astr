@@ -39,8 +39,8 @@ module udf_tool
         do j=1,jm
         do i=1,im
         !
-        if(im .ne. ia)then
-            stop "GenerateWave Error! im /= ia"
+        if((im .ne. ia) .and. ((2*im-2) .ne. ia))then
+            stop "GenerateWave Error! im /= ia  and (2*im-2) /= ia"
         endif
         !
         if(i <= (ia/2+1)) then
@@ -73,8 +73,12 @@ module udf_tool
         do j=1,jm
         do i=1,im
         !
-        if(im .ne. ia)then
-            stop "GenerateWave Error! im /= ia"
+        if((im .ne. ia) .and. ((2*im-2) .ne. ia))then
+            stop "GenerateWave Error! im /= ia and (2*im-2) /= ia"
+        endif
+        !
+        if(jm .ne. ja)then
+            stop "GenerateWave Error! jm /= ja"
         endif
         !
         if(i <= (ia/2+1)) then

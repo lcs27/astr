@@ -125,9 +125,9 @@ module initialisation
           call rtini
         ! case('hitflame')
         !   call hitflameini
-        ! case default
-        !   print*,trim(flowtype)
-        !   stop ' !! flowtype not defined @ flowinit'
+        case default
+          print*,trim(flowtype)
+          stop ' !! flowtype not defined @ flowinit'
         end select
         !
         call udf_flowinit

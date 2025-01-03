@@ -180,7 +180,7 @@ module commvar
   real(8) :: xcav_left,xcav_right,xcav2_left,xcav2_right,ycav_upper
   !
   integer :: ickmax
-  real(8) :: icamplitude,icsolenoidal,icdilatational
+  real(8) :: icurms,icsolenoidal,icdilatational
   !
   logical :: lforce
   integer :: forcenum

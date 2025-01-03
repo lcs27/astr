@@ -343,8 +343,6 @@ module userdefine
     use parallel, only : pmax,psum,irk,irkm,lio
     use utility,  only : listinit,listwrite,get_unit
     !
-    use thermchem,only : heatrate
-    !
     integer :: i,j,k
     real(8) :: tmpmax,rhomax,umax,qdotmax,poutrt
     real(8) :: qdot,var1,var2,bvelo

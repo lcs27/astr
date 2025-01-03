@@ -37,10 +37,10 @@ module udf_pp_spectra
         if(trim(readmode)=='instant2D') then
           !
           if(mpirank == 0) then
-              call readkeyboad(inputfile) 
-              read(inputfile,'(i4)') filenumb
-              call readkeyboad(method)
-              read(method,'(i1)') methodnumb
+            call readkeyboad(inputfile) 
+            read(inputfile,'(i4)') filenumb
+            call readkeyboad(method)
+            read(method,'(i1)') methodnumb
           endif
           call bcast(filenumb)
           call bcast(methodnumb)
@@ -138,7 +138,7 @@ module udf_pp_spectra
     integer :: allkmax, kOrdinal
     real(8) :: kk,dk,lambda
     real(8) :: Edspe,Esspe,Erhospe,Pudspe,Edphy,Esphy,Erhophy,udusphy,Edmax
-    real(8) :: ReUsConjUdmax,ReUsConjUdmin,k2Es,k2Ed,IntLengthAbove
+    real(8) :: ReUsConjUdmax,ReUsConjUdmin,k2Es,k2Ed,km1Ew
     character(len=128) :: outfilename
     integer :: hand_a,hand_b,hand_c
     character(len=1) :: modeio
@@ -185,11 +185,13 @@ module udf_pp_spectra
     allocate(vel(0:im,0:jm,0:km,1:2), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
     !
-    if (thefilenumb .ne. 0) then
+    if (thefilenumb > 0) then
       write(stepname,'(i4.4)')thefilenumb
       infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
-    else
+    elseif(thefilenumb == 0) then
       infilename='outdat/flowfield.'//modeio//'5'
+    elseif(thefilenumb == -1) then
+      infilename='datin/flowini2d.h5'
     endif
     !
     !
@@ -199,8 +201,10 @@ module udf_pp_spectra
     call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
     call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
     call h5read(varname='p',  var=prs(0:im,0:jm,0:km),mode = modeio)
-    call h5read(varname='time',var=time)
-    call h5read(varname='nstep',var=nstep)
+    if(thefilenumb .ne. -1)then
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+    endif
     !
     call h5io_end
     !
@@ -331,6 +335,7 @@ module udf_pp_spectra
     Pudspe = 0.0d0
     k2Es = 0.d0
     k2Ed = 0.d0
+    km1Ew = 0.d0
     !
     do j=1,jm
     do i=1,im
@@ -359,12 +364,13 @@ module udf_pp_spectra
         end if
         Edspe = Edspe + roinf * (udspe(i,j)*dconjg(udspe(i,j)))/2
         Esspe = Esspe + roinf * (usspe(i,j)*dconjg(usspe(i,j)))/2
-        Erhospe = Erhospe + real(rou1spe(i,j)*conjg(u1spe(i,j))+ rou2spe(i,j)*conjg(u2spe(i,j)))/2
-        IntLengthAbove = IntLengthAbove + roinf * usspe(i,j)*conjg(usspe(i,j))/2/kk + &
-                        roinf * (udspe(i,j)*dconjg(udspe(i,j)))/2/kk
+        Erhospe = Erhospe + real(rou1spe(i,j)*dconjg(u1spe(i,j))+ rou2spe(i,j)*dconjg(u2spe(i,j)))/2
         Pudspe = Pudspe + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)/2
         k2Es = k2Es + kk**2 * (usspe(i,j)*dconjg(usspe(i,j)))/2
         k2Ed = k2Ed + kk**2 * (udspe(i,j)*dconjg(udspe(i,j)))/2
+        if(kk > 0.5d0)then
+          km1Ew = km1Ew + kk**(-1) * roinf * (usspe(i,j)*dconjg(usspe(i,j))+(udspe(i,j)*dconjg(udspe(i,j))))
+        endif
       end do
     end do
     !
@@ -394,9 +400,9 @@ module udf_pp_spectra
     Esspe = psum(Esspe)
     Erhospe = psum(Erhospe)
     Pudspe = psum(Pudspe)
-    IntLengthAbove = psum(IntLengthAbove)
     k2Es = psum(k2Es)
     k2Ed = psum(k2Ed)
+    km1Ew = psum(km1Ew)
     !
     if(mpirank==0)  print*, '** Summation & average'
     if(mpirank==0)  print*, '** spectra calculation finish'
@@ -446,10 +452,12 @@ module udf_pp_spectra
     if(mpirank==0)  print*, '** physical calculation finish'
     !
     if(mpirank == 0) then
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_a, &
@@ -460,16 +468,18 @@ module udf_pp_spectra
       !
       print*,' <<< '//outfilename//'... done.'
       !
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec_aux'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec_aux.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_aux_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_b, &
-            firstline='nstep time Edphy Esphy udusphy Eweakphy Erhophy Edspe Esspe Pudspe Eweakspe Erhospe Edmax k2Es k2Ed')! IntLen')
+            firstline='nstep time Edphy Esphy udusphy Eweakphy Erhophy Edspe Esspe Pudspe Eweakspe Erspe Edmax k2Es k2Ed IntL')
       call listwrite(hand_b,Edphy,Esphy,udusphy,Edphy+Esphy+udusphy,Erhophy,&
-                    Edspe,Esspe,Pudspe,Edspe+Esspe,Erhospe,Edmax,k2Es,k2Ed)!,IntLengthAbove/(Edspe+Esspe))
+                    Edspe,Esspe,Pudspe,Edspe+Esspe,Erhospe,Edmax,k2Es,k2Ed,km1Ew/(Edspe+Esspe))
       !
       print*,' <<< '//outfilename//'... done.'
       !
@@ -484,10 +494,12 @@ module udf_pp_spectra
       ! call listwrite(hand_b,ReUsConjUdmax,ReUsConjUdmin)
       ! !
       ! print*,' <<< '//outfilename//'... done.'
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec_mean'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec_mean.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_mean_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_c, &
@@ -547,8 +559,7 @@ module udf_pp_spectra
     real(8), allocatable, dimension(:,:,:) :: k1,k2,k3
     integer :: allkmax, kOrdinal
     real(8) :: kk,dk,lambda
-    real(8) :: Edspe,Esspe,Erhospe,Pudspe,Edphy,Esphy,Erhophy,udusphy,Edmax,ReUsConjUdmax,ReUsConjUdmin
-    real(8) :: IntLengthAbove
+    real(8) :: Edspe,Esspe,Erhospe,Pudspe,Edphy,Esphy,Erhophy,udusphy,Edmax,ReUsConjUdmax,ReUsConjUdmin,km1Ew
     character(len=128) :: outfilename
     integer :: hand_a,hand_b,hand_c
     character(len=1) :: modeio
@@ -595,11 +606,13 @@ module udf_pp_spectra
     allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
     !
     !
-    if (thefilenumb .ne. 0) then
+    if (thefilenumb > 0) then
       write(stepname,'(i4.4)')thefilenumb
       infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
-    else
+    elseif(thefilenumb == 0) then
       infilename='outdat/flowfield.'//modeio//'5'
+    elseif(thefilenumb == -1) then
+      infilename='datin/flowini3d.h5'
     endif
     !
     !
@@ -610,8 +623,10 @@ module udf_pp_spectra
     call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
     call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
     call h5read(varname='p',  var=prs(0:im,0:jm,0:km),mode = modeio)
-    call h5read(varname='time',var=time)
-    call h5read(varname='nstep',var=nstep)
+    if(thefilenumb .ne. -1)then
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+    endif
     !
     call h5io_end
     !
@@ -771,6 +786,7 @@ module udf_pp_spectra
     Edspe = 0.0d0
     Esspe = 0.0d0
     Pudspe = 0.0d0
+    km1Ew = 0.d0
     !
     do k=1,km
     do j=1,jm
@@ -816,16 +832,18 @@ module udf_pp_spectra
       Esspe = Esspe + roinf * u1s(i,j,k)*conjg(u1s(i,j,k))/2 + &
               roinf * u2s(i,j,k)*conjg(u2s(i,j,k))/2 + &
               roinf * u3s(i,j,k)*conjg(u3s(i,j,k))/2
-      IntLengthAbove = IntLengthAbove + roinf * u1d(i,j,k)*conjg(u1d(i,j,k))/2/kk + &
-                      roinf * u2d(i,j,k)*conjg(u2d(i,j,k))/2/kk + &
-                      roinf * u3d(i,j,k)*conjg(u3d(i,j,k))/2/kk + &
-                      roinf * u1s(i,j,k)*conjg(u1s(i,j,k))/2/kk + &
-                      roinf * u2s(i,j,k)*conjg(u2s(i,j,k))/2/kk + &
-                      roinf * u3s(i,j,k)*conjg(u3s(i,j,k))/2/kk
       Pudspe = Pudspe + dimag(pspe(i,j,k)*dconjg(udspe(i,j,k))*(kk**2))/2
       Erhospe = Erhospe + real(rou1spe(i,j,k)*conjg(u1spe(i,j,k))+ &
                 rou2spe(i,j,k)*conjg(u2spe(i,j,k)) + &
                 rou3spe(i,j,k)*conjg(u3spe(i,j,k)))/2
+      if(kk > 0.5d0)then
+        km1Ew = km1Ew + kk**(-1) * (roinf * u1d(i,j,k)*conjg(u1d(i,j,k))/2 + &
+        roinf * u2d(i,j,k)*conjg(u2d(i,j,k))/2 + &
+        roinf * u3d(i,j,k)*conjg(u3d(i,j,k))/2 + &
+        roinf * u1s(i,j,k)*conjg(u1s(i,j,k))/2 + &
+        roinf * u2s(i,j,k)*conjg(u2s(i,j,k))/2 + &
+        roinf * u3s(i,j,k)*conjg(u3s(i,j,k))/2)
+      endif
     enddo
     enddo
     enddo
@@ -856,7 +874,7 @@ module udf_pp_spectra
     Esspe = psum(Esspe)
     Erhospe = psum(Erhospe)
     Pudspe = psum(Pudspe)
-    IntLengthAbove = psum(IntLengthAbove)
+    km1Ew = psum(km1Ew)
     !
     if(mpirank==0)  print*, '** Summation & average'
     if(mpirank==0)  print*, '** spectra calculation finish'
@@ -907,10 +925,12 @@ module udf_pp_spectra
     if(mpirank==0)  print*, '** physical calculation finish'
     !
     if(mpirank == 0) then
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_a, &
@@ -921,16 +941,18 @@ module udf_pp_spectra
       !
       print*,' <<< '//outfilename//'... done.'
       !
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec_aux'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec_aux.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_aux_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_b, &
-                    firstline='nstep time Edphy Esphy udusphy Eweakphy Erhophy Edspe Esspe Pudspe Eweakspe Erhospe Edmax')! IntLen')
+                    firstline='nstep time Edphy Esphy udusphy Eweakphy Erhophy Edspe Esspe Pudspe Eweakspe Erhospe Edmax IntLength')!
       call listwrite(hand_b,Edphy,Esphy,udusphy,Edphy+Esphy+udusphy, Erhophy,&
-                    Edspe,Esspe,Pudspe,Edspe+Esspe,Erhospe,Edmax)!IntLengthAbove/(Ecspe+Esspe))
+                    Edspe,Esspe,Pudspe,Edspe+Esspe,Erhospe,Edmax,km1Ew/(Edspe+Esspe))!
       !
       print*,' <<< '//outfilename//'... done.'
       !
@@ -945,10 +967,12 @@ module udf_pp_spectra
       ! call listwrite(hand_b,ReUsConjUdmax,ReUsConjUdmin)
       ! !
       ! print*,' <<< '//outfilename//'... done.'
-      if (thefilenumb .ne. 0) then
+      if (thefilenumb > 0) then
         outfilename = 'pp/Espec_mean'//stepname//'.dat'
-      else
+      elseif(thefilenumb == 0) then
         outfilename = 'pp/Espec_mean.dat'
+      elseif(thefilenumb == -1) then
+        outfilename = 'datin/Espec_mean_init.dat'
       endif
       !
       call listinit(filename=outfilename,handle=hand_c, &

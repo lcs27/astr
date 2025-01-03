@@ -85,7 +85,7 @@ module fftwlink
             jsize = nproc
             !
         else
-            stop '1D not implemented!'
+            stop 'fftw_mpi: 1D not implemented!'
             !alloc_local = fftw_mpi_local_size(myid,iafftw,MPI_COMM_WORLD, imfftw, i0fftw)
             jmfftw = 0
             kmfftw = 0
@@ -211,7 +211,7 @@ module fftwlink
             jsize = nproc
             !
         else
-            stop '1D not implemented!'
+            stop 'fftw_mpi: 1D not implemented!'
             !alloc_local = fftw_mpi_local_size(myid,iafftw,MPI_COMM_WORLD, imfftw, i0fftw)
             jmfftw = 0
             kmfftw = 0

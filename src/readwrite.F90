@@ -988,8 +988,8 @@ module readwrite
   !
   subroutine readic
     !
-    use commvar,   only: ickmax,icamplitude,icsolenoidal,icdilatational,lforce,&
-                      forcenum,hypervisk,hypervismiu
+    use commvar,   only: ickmax,icurms,icsolenoidal,icdilatational,&
+                          lforce,forcenum,hypervisk,hypervismiu
     use commarray, only: forcek,forcespes,forcesped
     use parallel,only: bcast
     !
@@ -1005,13 +1005,13 @@ module readwrite
       !
       open(fh,file=trim(inputfile),action='read')
       read(fh,'(////)')
-      read(fh,*)ickmax,icamplitude,icsolenoidal,icdilatational
+      read(fh,*)ickmax,icurms,icsolenoidal,icdilatational
       read(fh,'(/)')
       read(fh,*)lforce
       read(fh,'(/)')
     endif
     call bcast(ickmax)
-    call bcast(icamplitude)
+    call bcast(icurms)
     call bcast(icsolenoidal)
     call bcast(icdilatational)
     call bcast(lforce)
@@ -1044,7 +1044,7 @@ module readwrite
       print *,' >> ',trim(inputfile),' ... done'
       !
       print *, "  ** Initial field:"
-      print *, "     kmax = ", ickmax, "with amplitude:",icamplitude,". Ratio S=",icsolenoidal,"D=",icdilatational
+      print *, "     kmax = ", ickmax, "with urms:",icurms,". Ratio S=",icsolenoidal,"D=",icdilatational
       if(lforce)then
         print*,"  ** Force activated!"
         print*,"     hypervisk = ",hypervisk,"hypervismiu = ",hypervismiu
