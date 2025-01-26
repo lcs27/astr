@@ -407,18 +407,17 @@ module fftwlink
         !
     end subroutine fftwprepare_forcing2D
     !
-    function fftw_grid_fence_2D(gridarray_t) result(fencearray)
+    subroutine fftw_grid_fence_2D(gridarray_t,fencearray)
         !
         use parallel
         !
         ! gridarray_t is transposed!
         real(8), intent(in), dimension(:,:)  ::  gridarray_t 
-        real(8), allocatable, dimension(:,:) ::  fencearray
+        real(8), intent(out), dimension(:,:) ::  fencearray
         real(8), allocatable, dimension(:,:) :: global_t, global
         !
         allocate(global_t(1:jm,1:ia),global(1:ia,1:jm))
         !
-        if (.not. allocated(fencearray)) allocate(fencearray(1:ia,1:jmf))
         !
         call mpi_gatherv(gridarray_t,im*jm, MPI_REAL8, &
         global_t,counts_grid,disp_grid,MPI_REAL8,rooti0, &
@@ -432,19 +431,18 @@ module fftwlink
         !
         deallocate(global_t,global)
         !
-    end function fftw_grid_fence_2D
+    end subroutine fftw_grid_fence_2D
     !
-    function fftw_fence_grid_2D(fencearray) result(gridarray_t)
+    subroutine fftw_fence_grid_2D(fencearray,gridarray_t)
         !
         use parallel
         !
         ! gridarray_t is transposed!
         real(8), intent(in), dimension(:,:)  :: fencearray
-        real(8), allocatable, dimension(:,:) :: gridarray_t
+        real(8), intent(out), dimension(:,:) :: gridarray_t
         real(8), allocatable, dimension(:,:) :: global_t, global
         !
         allocate(global_t(1:jm,1:ia),global(1:ia,1:jm))
-        if (.not. allocated(gridarray_t)) allocate(gridarray_t(1:jm,1:im))
         !
         call mpi_gatherv(fencearray,ia*jmf, MPI_REAL8, &
         global,counts_fence,disp_fence,MPI_REAL8,rooti0,  &
@@ -458,60 +456,34 @@ module fftwlink
         !
         deallocate(global_t,global)
         !
-    end function fftw_fence_grid_2D
+    end subroutine fftw_fence_grid_2D
     !
-    function fftw_grid_fence_3D(gridarray_t) result(fencearray)
+    subroutine fftw_grid_fence_3D(gridarray_t13,fencearray)
+        !
         !
         use parallel
         !
         ! gridarray_t is transposed!
-        real(8), intent(in), dimension(:,:,:)  ::  gridarray_t 
-        real(8), allocatable, dimension(:,:,:) ::  fencearray
+        real(8), intent(in), dimension(:,:,:)  ::  gridarray_t13
+        real(8), intent(out), dimension(:,:,:) ::  fencearray
         real(8), allocatable, dimension(:,:,:) :: global_t, global
         !
-        ! allocate(global_t(1:jm,1:ia),global(1:ia,1:jm))
-        ! !
-        ! if (.not. allocated(fencearray)) allocate(fencearray(1:ia,1:jmf))
-        ! !
-        ! call mpi_gatherv(gridarray_t,im*jm, MPI_REAL8, &
-        ! global_t,counts_grid,disp_grid,MPI_REAL8,rooti0, &
-        ! MPI_COMM_WORLD, ierr)
-        ! !
-        ! global = transpose(global_t)
-        ! !
-        ! call mpi_scatterv(global,counts_fence,disp_fence,MPI_REAL8,&
-        !                 fencearray,ia*jmf,MPI_REAL8,rooti0,&
-        !                     MPI_COMM_WORLD,ierr)
-        ! !
-        ! deallocate(global_t,global)
+        ! Under implementation
         !
-    end function fftw_grid_fence_3D
+    end subroutine fftw_grid_fence_3D
     !
-    function fftw_fence_grid_3D(fencearray) result(gridarray_t)
+    subroutine fftw_fence_grid_3D(fencearray,gridarray_t13)
         !
         use parallel
         !
         ! gridarray_t is transposed!
         real(8), intent(in), dimension(:,:,:)  :: fencearray
-        real(8), allocatable, dimension(:,:,:) :: gridarray_t
+        real(8), intent(out), dimension(:,:,:) :: gridarray_t13
         real(8), allocatable, dimension(:,:,:) :: global_t, global
-        ! !
-        ! allocate(global_t(1:jm,1:ia),global(1:ia,1:jm))
-        ! if (.not. allocated(gridarray_t)) allocate(gridarray_t(1:jm,1:im))
-        ! !
-        ! call mpi_gatherv(fencearray,ia*jmf, MPI_REAL8, &
-        ! global,counts_fence,disp_fence,MPI_REAL8,rooti0,  &
-        ! MPI_COMM_WORLD, ierr)
-        ! !
-        ! global_t = transpose(global)
-        ! !
-        ! call mpi_scatterv(global,counts_grid,disp_grid,MPI_REAL8,&
-        !                     gridarray_t,im*jm,MPI_REAL8,rooti0,  &
-        !                     MPI_COMM_WORLD,ierr)
-        ! !
-        ! deallocate(global_t,global)
         !
-    end function fftw_fence_grid_3D
+        ! Under implementation
+        !
+    end subroutine fftw_fence_grid_3D
 !     subroutine fftwalloc_find_position(n, dir, proc, pos_in_proc)
 !         implicit none
 !         !

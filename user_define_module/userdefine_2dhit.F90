@@ -982,8 +982,8 @@ module userdefine
     enddo
     !
     !
-    fftvel1 = fftw_grid_fence(localvel1t)
-    fftvel2 = fftw_grid_fence(localvel2t)
+    call fftw_grid_fence(localvel1t,fftvel1)
+    call fftw_grid_fence(localvel2t,fftvel2)
     !
     ! Begin FFTW
       !
@@ -1095,8 +1095,8 @@ module userdefine
     enddo
     enddo
     !
-    force1t = fftw_fence_grid(fftforce1)
-    force2t = fftw_fence_grid(fftforce2)
+    call fftw_fence_grid(fftforce1,force1t)
+    call fftw_fence_grid(fftforce2,force2t)
     !
     forcep = 0.d0
     !
