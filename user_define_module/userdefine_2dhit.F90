@@ -181,575 +181,353 @@ module userdefine
   subroutine udf_stalist
     !
     use constdef
-    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf
+    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf, const6
     use commarray,only : vel,rho,tmp,dvel,q,vorbis,dvor,prs
     use fludyna,  only : miucal,sos
     use comsolver,only : solvrinit,grad
     use utility,  only : listinit,listwrite
     use parallel, only : dataswap,psum,lio,pmax,pmin
-    use constdef, only : pi
+    use constdef, only : pi,num1d3
     !
     integer :: i,j,k,ns
-    real(8) :: s11,s12,s13,s23,s22,s33,div,miu,dissa,dissloc,kolmloc
-    real(8) :: du11,du12,du21,du22,du33,du23,du13,du32,du31
-    real(8) :: m11m11,m22m22,m11m22,m12m21,m12m12,m21m21,m33m33
-    real(8) :: m13m13,m23m23,m31m31,m32m32
-    real(8) :: m11m11m11,m22m22m22,m11m11m22,m22m22m11,m11m12m12,&
-              m22m21m21,m22m21m12,m11m12m21,m11m21m21,m22m12m12,&
-              m33m33m33
-    real(8) :: dPhi, dPsi,comlen
+    real(8) :: rsamples,R
+    real(8) :: urms,Kall,Kw,Krho,pavg,eavg,ptheta,rhocotheta,uutheta,rhouugrad,dissps,disspd,dissp
     real(8) :: divU,Omega,Psi,Phi
-    real(8) :: divUdivU,dPsidPsi,dPhidPhi,OmegadivU,OmegaOmega
-    real(8) :: dPsidPsidivU,dPhidPhidivU,divUdivUdivU,OmegaOmegadivU,traceSS,traceSSth,wsw,s3
-    real(8) :: rsamples,miudrho,dudx2,csavg,v2,cs,ufluc,ens,omegaz,omegax,omegay
-    real(8) :: rhoavg,rho2nd,w2drho
-    real(8) :: urms,energy,taylorlength,kolmoglength,Retaylor,machrms,macht,rhoe,skewness,du2,du3,ReL
-    real(8) :: mfpath,R ! mfpath = mean free path
-    real(8) :: rhoprime,Kw,Krho,ptheta,uutheta,rhouugrad
+    real(8) :: divUdivU,dPsidPsi,dPhidPhi,OmegadivU,OmegaOmega, &
+              m11m11,m22m22,m11m22,m12m21,m12m12,m21m21,du2
+    real(8) :: dPsidPsidivU,dPhidPhidivU,divUdivUdivU,OmegaOmegadivU, &
+              m11m11m11,m22m22m22,m11m11m22,m22m22m11,m11m12m12,&
+              m22m21m21,m22m21m12,m11m12m21,m11m21m21,m22m12m12,du3
+    real(8) :: kolmloc,mfpath,machrms,csavg,niuavg,miuavg,rhoavg,rho2nd,w2drho,ensdissp
+    real(8) :: miu,niu,rhoprime,u1,u2,v2,cs,du11,du12,du21,du22,s11,s12,s22,div,omegaz,dPhi,dPsi,dissloc
+    real(8) :: ens,macht,skewness,ufluc,Kollength,Taylength,ReTay,&
+                Intlength,ReInt,EnsKol,EnsLarge,ReEnsLar,EnsMicro,&
+                ReEnsMic ! mfpath = mean free path
     !
-    logical :: fex
     logical,save :: linit=.true.
-    integer,save :: hand_fs,hand_mom2nd,hand_mom3rd,hand_skew,hand_en,hand_weakly
+    integer,save :: hand_a,hand_b,hand_c,hand_d,hand_e
     !
-    if(ka==0) then 
+    R = 8.31446261815324d0
+    if(ka .ne. 0) then
+      !
+      stop "Error! Not 2D"
       ! 2D part
-      R = 8.31446261815324d0
+    endif
+    !
+    !!!!! File initialization
+    if(linit) then
       !
-      if(linit) then
-        !
-        if(lio) then
-          call listinit(filename='log/fturbstats2d.dat',handle=hand_fs, &
-             firstline='nstep time urms ens talen 2Dkolm kolmloc Rel ReL Ensdis mfpath machrms macht Tavg skewness')
-          call listinit(filename='log/mom2nd.dat',handle=hand_mom2nd, &
-                        firstline='nstep time m11m11 m22m22 m11m22 m12m21 m12m12 m21m21')
-          call listinit(filename='log/mom3rd.dat',handle=hand_mom3rd, &
-                        firstline='nstep time A111111 A222222 A111122 A222211 A111212 A221212 A112121 A222121 A222112 A111221')
-          call listinit(filename='log/skewness.dat',handle=hand_skew, &
-                        firstline='ns time th o ps f th2 ps2 f2 oth o2 ps2th f2th th3 o2th m11s m22s m11c m22c')
-          call listinit(filename='log/fenergy.dat',handle=hand_en, &
-                        firstline='ns time rhoavg rho2nd w2drho')
-          call listinit(filename='log/weakly.dat',handle=hand_weakly, &
-                        firstline='ns time Kw Krho ptheta uutheta rhouugrad')
-        endif
-        !
-        linit=.false.
-        !
+      if(lio) then
+        call listinit(filename='log/stat2d_ener.dat',handle=hand_a, &
+            firstline='ns ti urms Kall Kw Krho pavg eavg ptheta rhocotheta uutheta rhouugrad dissps disspd dissp')
+        call listinit(filename='log/stat2d_2nd.dat',handle=hand_b, &
+                      firstline='ns ti th2 ps2 f2 oth o2 A1111 A2222 A1122 A1221 A1212 A2121')
+        call listinit(filename='log/stat2d_3rd.dat',handle=hand_c, &
+                      firstline='ns ti ps2th f2th th3 o2th A111 A222 A112 A221 A111212 A222121 A222112 A111221 A112121 A221212')
+        call listinit(filename='log/stat2d_di.dat',handle=hand_d, &
+                      firstline='ns ti th o ps f kolmloc mfpath marms csavg nuav muav roav rho2nd w2drho ensdis')
+        call listinit(filename='log/stat2d_scale.dat',handle=hand_e, &
+                      firstline='ns ti ens macht skew ufluc Kol Tay ReTay Int ReInt EnsKol EnsLar ReLar EnsMicro ReMic')
       endif
       !
-      rsamples=dble(ia*ja)
+      linit=.false.
       !
-      urms=0.d0
-      energy=0.d0
+    endif
+    !
+    rsamples=dble(ia*ja)
+    !
+    !!!!! Quantities initialization
+    !
+    ! u-2nd-order
+    urms=0.d0
+    !
+    ! Energy terms
+    Kall=0.d0      ! Kinetic energy
+    Kw=0.d0        ! Weakly compressible kinetic energy
+    Krho=0.d0      ! Density fluctuation kinetic energy
+    pavg=0.d0      ! Average pressure
+    eavg=0.d0      ! Average internal energy
+    !
+    ! Transfer terms
+    ptheta=0.d0    ! Transfer to p
+    rhocotheta=0.d0    ! Transfer to p(considered as 0)
+    uutheta=0.d0   ! Kw-Krho transfer
+    rhouugrad=0.d0 ! Kw-Krho transfer ignored ny w.c.a.
+    dissps=0.d0    ! Solenoidal dissipation (with density)
+    disspd=0.d0    ! dilatational dissipation (with density)
+    dissp=0.d0     ! total dissipation
+    !
+    ! Velgrad 1st order
+    Omega=0.d0
+    Psi=0.d0
+    Phi=0.d0
+    divU=0.d0
+    !
+    ! Velgrad 2nd order 
+    OmegaOmega=0.d0
+    OmegadivU=0.d0
+    divUdivU=0.d0
+    dPsidPsi=0.d0
+    dPhidPhi=0.d0
+    m11m11=0.d0
+    m22m22=0.d0
+    m11m22=0.d0
+    m12m21=0.d0
+    m12m12=0.d0
+    m21m21=0.d0
+    du2=0.d0     ! Total second order(m11m11+m22m22)
+    !
+    ! Velgrad 3rd order
+    OmegaOmegadivU=0.d0
+    divUdivUdivU=0.d0
+    dPsidPsidivU=0.d0
+    dPhidPhidivU=0.d0
+    m11m11m11=0.d0
+    m22m22m22=0.d0
+    m11m11m22=0.d0
+    m22m22m11=0.d0
+    m11m12m12=0.d0
+    m22m12m12=0.d0
+    m11m21m21=0.d0
+    m22m21m21=0.d0
+    m11m12m21=0.d0
+    m22m21m12=0.d0
+    du3=0.d0      ! Total third order(m11m11m11+m22m22m22)
+    !
+    ! Lengths
+    kolmloc=2*pi  ! min local Kolmogorov length
+    mfpath=0.d0   ! max mean free path
+    !
+    ! Sound speed related
+    machrms=0.d0  ! root-mean-square mach number (turbulent mach number)
+    csavg=0.d0    ! average speed of sound
+    !
+    ! Density related
+    niuavg=0.d0  ! average miu/rho
+    miuavg=0.d0  ! average miu
+    rhoavg=0.d0  ! average rho
+    rho2nd=0.d0  ! average rho**2
+    w2drho=0.d0  ! average w**2/rho
+    !
+    ensdissp=0.d0
+    !!!!! Vorticity Gradient Calculation
+    k=0
+    do j=0,jm
+    do i=0,im
+      vorbis(i,j,k)=dvel(i,j,k,2,1)-dvel(i,j,k,1,2)
+    enddo
+    enddo
+    call dataswap(vorbis)
+    dvor=grad(vorbis)
+    !
+    !!!!! Point calculation
+    k=0
+    do j=1,jm
+    do i=1,im
       !
-      divU=0.d0
-      comlen=2*pi
-      kolmloc=2*pi
-      mfpath=0.d0
-      Omega=0.d0
-      Psi=0.d0
-      Phi=0.d0
+      !! Values within this loop
+      miu = miucal(tmp(i,j,k))/Reynolds
+      niu = miu/rho(i,j,k)
+      rhoprime = rho(i,j,k) - roinf
+      u1 = vel(i,j,k,1)
+      u2 = vel(i,j,k,2)
+      v2 = u1**2+u2**2
+      cs = sos(tmp(i,j,k))
       !
-      OmegaOmega=0.d0
-      OmegadivU=0.d0
-      divUdivU=0.d0
-      dPsidPsi=0.d0
-      dPhidPhi=0.d0
+      du11=dvel(i,j,k,1,1)
+      du12=dvel(i,j,k,1,2)
+      du21=dvel(i,j,k,2,1)
+      du22=dvel(i,j,k,2,2)
       !
-      OmegaOmegadivU=0.d0
-      divUdivUdivU=0.d0
-      dPsidPsidivU=0.d0
-      dPhidPhidivU=0.d0
+      s11=du11
+      s12=0.5d0*(du12+du21)
+      s22=du22
       !
-      m11m11=0.d0
-      m22m22=0.d0
-      m11m22=0.d0
-      m12m21=0.d0
-      m12m12=0.d0
-      m21m21=0.d0
-      m11m11m11=0.d0
-      m22m22m22=0.d0
-      m11m11m22=0.d0
-      m22m22m11=0.d0
-      m11m12m12=0.d0
-      m22m12m12=0.d0
-      m11m21m21=0.d0
-      m22m21m21=0.d0
-      m11m12m21=0.d0
-      m22m21m12=0.d0
+      div    = du11+du22
+      omegaz = du21-du12
+      dPsi   = du12+du21
+      dPhi   = du11-du22
       !
-      machrms=0.d0
+      dissloc   = 2.d0*miu*(s11**2+s22**2+2.d0*(s12**2)-num1d3*div**2)
+      !! Statistic quantities
       !
-      miudrho=0.d0
-      dudx2=0.d0
-      csavg=0.d0
-      dissa=0.d0
-      ens=0.d0
-      du3=0.d0
-      du2=0.d0
-      rhoavg=0.d0
-      rho2nd=0.d0
-      w2drho=0.d0
-      Kw=0.d0
-      Krho=0.d0
-      ptheta=0.d0
-      uutheta=0.d0
-      rhouugrad=0.d0
+      urms = urms+v2
       !
-      k=0
-      do j=0,jm
-      do i=0,im
-        vorbis(i,j,k)=dvel(i,j,k,2,1)-dvel(i,j,k,1,2)
-      enddo
-      enddo
+      ! Energy terms
+      Kall = Kall + 0.5d0* rho(i,j,k) *v2
+      Kw   = Kw   + 0.5d0* roinf      *v2
+      Krho = Krho + 0.5d0* rhoprime   *v2
+      pavg = pavg + prs(i,j,k)
+      eavg = eavg + prs(i,j,k)*const6
       !
-      call dataswap(vorbis)
+      ! Transfer terms
+      ptheta     = ptheta     + prs(i,j,k)*div
+      rhocotheta = rhocotheta + rho(i,j,k)*(cs**2)*div
+      uutheta    = uutheta    + 0.5d0*roinf*v2*div
+      rhouugrad  = rhouugrad  + rhoprime * (u1*u1*du11 + u1*u2*du12 + &
+                                            u1*u2*du21 + u2*u2*du22)
+      dissps    = dissps + 1.d0*(omegaz**2) ! The multiplication by miuavg will be outside the loop
+      disspd    = disspd + 4.d0/3.d0*(div**2) ! The multiplication by miuavg will be outside the loop
+      dissp     = dissp  + dissloc
       !
+      ! Velgrad 1st order
+      divU  = divU  + div
+      Omega = Omega + omegaz
+      Psi   = Psi   + dPsi
+      Phi   = Phi   + dPhi
       !
-      dvor=grad(vorbis)
+      ! Velgrad 2nd order 
+      OmegaOmega = OmegaOmega + omegaz*omegaz
+      OmegadivU  = OmegadivU  + omegaz*div
+      divUdivU   = divUdivU   + div*div
+      dPsidPsi   = dPsidPsi   + dPsi*dPsi
+      dPhidPhi   = dPhidPhi   + dPhi*dPhi
+      m11m11     = m11m11     + du11*du11
+      m22m22     = m22m22     + du22*du22
+      m11m22     = m11m22     + du11*du22
+      m12m21     = m12m21     + du12*du21
+      m12m12     = m12m12     + du12*du12
+      m21m21     = m21m21     + du21*du21
+      du2        = du2        + du11**2+du22**2
       !
-      k=0
-      do j=1,jm
-      do i=1,im
-        !
-        ! This point values
-        !
-        miu=miucal(tmp(i,j,k))/Reynolds
-        rhoprime = rho(i,j,k) - roinf
-        !
-        du11=dvel(i,j,k,1,1)
-        du12=dvel(i,j,k,1,2)
-        du21=dvel(i,j,k,2,1)
-        du22=dvel(i,j,k,2,2)
-        !
-        s11=du11
-        s12=0.5d0*(du12+du21)
-        s22=du22
-        !
-        div=du11+du22
-        !
-        omegaz=du21-du12
-        !
-        dPsi = du12+du21
-        dPhi = du11-du22
-        !
-        v2=vel(i,j,k,1)**2+vel(i,j,k,2)**2
-        !
-        cs=sos(tmp(i,j,k))
-        !
-        ! Volume average values 
-        !
-        urms = urms+v2
-        energy = energy + 0.5d0*rho(i,j,k)*v2
-        ens = ens + 0.5d0*(omegaz*omegaz)
-        !
-        divU = divU+div
-        comlen = min(comlen,sqrt(miu/rho(i,j,k)/abs(div)))
-        Omega = Omega + omegaz
-        Psi = Psi + dPsi
-        Phi = Phi + dPhi
-        !
-        OmegaOmega = OmegaOmega + omegaz*omegaz
-        OmegadivU = OmegadivU + omegaz*div
-        divUdivU = divUdivU + div*div
-        dPsidPsi = dPsidPsi + dPsi*dPsi
-        dPhidPhi = dPhidPhi + dPhi*dPhi
-        !
-        OmegaOmegadivU = OmegaOmegadivU + omegaz*omegaz*div
-        divUdivUdivU = divUdivUdivU + div*div*div
-        dPsidPsidivU = dPsidPsidivU + dPsi*dPsi*div
-        dPhidPhidivU = dPhidPhidivU + dPhi*dPhi*div
-        !
-        m11m11=m11m11+du11*du11
-        m22m22=m22m22+du22*du22
-        m11m22=m11m22+du11*du22
-        m12m21=m12m21+du12*du21
-        m12m12=m12m12+du12*du12
-        m21m21=m21m21+du21*du21
-        !
-        m11m11m11=m11m11m11+du11*du11*du11
-        m22m22m22=m22m22m22+du22*du22*du22
-        m11m11m22=m11m11m22+du11*du11*du22
-        m22m22m11=m22m22m11+du22*du22*du11
-        m11m12m12=m11m12m12+du11*du12*du12
-        m22m12m12=m22m12m12+du22*du12*du12
-        m11m21m21=m11m21m21+du11*du21*du21
-        m22m21m21=m22m21m21+du22*du21*du21
-        m11m12m21=m11m12m21+du11*du12*du21
-        m22m21m12=m22m21m12+du22*du21*du12
-        !
-        dudx2=dudx2+du11**2+du22**2
-        !
-        miudrho=miudrho+miu/rho(i,j,k)
-        !
-        csavg=csavg+cs
-        !
-        machrms=machrms+v2/(cs*cs)
-        !
-        rhoe=rhoe+tmp(i,j,k)
-        !
-        ! This is the enstrophy dissipation!
-        dissa = dissa+miu/rho(i,j,k)*(dvor(i,j,k,1)**2+dvor(i,j,k,2)**2)
-        ! This is the energy dissipation!
-        dissloc = 2.d0*miu/rho(i,j,k)*(s11**2+s22**2+2.d0*(s12**2)-0.5d0*div**2)
-        kolmloc = min(kolmloc,sqrt(sqrt((miu/rho(i,j,k))**3/dissloc)))
-        !
-        !
-        du3=du3+(du11*du11*du11+du22*du22*du22)
-        du2=du2+(du11*du11+du22*du22)
-        !
-        rhoavg = rhoavg + rho(i,j,k)
-        rho2nd = rho2nd + rho(i,j,k)*rho(i,j,k)
-        w2drho = w2drho + (omegaz*omegaz)/rho(i,j,k)
-        !
-        mfpath = max(mfpath,2.d0*miu/rho(i,j,k)/0.921/sqrt(3.d0*R*tmp(i,j,k)))
-        !
-        Kw       = Kw+ 0.5d0*roinf*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)
-        Krho     = Krho + 0.5d0*rhoprime*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)
-        ptheta   = ptheta + prs(i,j,k)*div
-        uutheta  = uutheta + 0.5d0*roinf*(vel(i,j,k,1)**2+vel(i,j,k,2)**2)*div
-        rhouugrad= rhouugrad + rhoprime * (vel(i,j,k,1)*vel(i,j,k,1)*du11 + &
-                                           vel(i,j,k,1)*vel(i,j,k,2)*du12 + &
-                                           vel(i,j,k,2)*vel(i,j,k,1)*du21 + &
-                                           vel(i,j,k,2)*vel(i,j,k,2)*du22)
-        !
-      enddo
-      enddo
+      ! Velgrad 3rd order 
+      OmegaOmegadivU = OmegaOmegadivU + omegaz*omegaz*div
+      divUdivUdivU   = divUdivUdivU   + div*div*div
+      dPsidPsidivU   = dPsidPsidivU   + dPsi*dPsi*div
+      dPhidPhidivU   = dPhidPhidivU   + dPhi*dPhi*div
+      m11m11m11   = m11m11m11 + du11*du11*du11
+      m22m22m22   = m22m22m22 + du22*du22*du22
+      m11m11m22   = m11m11m22 + du11*du11*du22
+      m22m22m11   = m22m22m11 + du22*du22*du11
+      m11m12m12   = m11m12m12 + du11*du12*du12
+      m22m12m12   = m22m12m12 + du22*du12*du12
+      m11m21m21   = m11m21m21 + du11*du21*du21
+      m22m21m21   = m22m21m21 + du22*du21*du21
+      m11m12m21   = m11m12m21 + du11*du12*du21
+      m22m21m12   = m22m21m12 + du22*du21*du12
+      du3         = du3 + (du11**3+du22**3)
       !
-      urms= sqrt(psum(urms)/rsamples)
-      energy= psum(energy)/rsamples
-      ens=psum(ens)/rsamples
+      ! Lengths
+      kolmloc = min(kolmloc,sqrt(sqrt((niu**3)/dissloc)))
+      mfpath  = max(mfpath,2.d0*niu/0.921/sqrt(3.d0*R*tmp(i,j,k)))
       !
-      divU  = psum(divU)/rsamples
-      Omega  = psum(Omega)/rsamples
-      Psi  = psum(Psi)/rsamples
-      Phi  = psum(Phi)/rsamples
+      machrms = machrms+v2/(cs*cs)
+      csavg   = csavg+cs
       !
-      OmegaOmega  = psum(OmegaOmega)/rsamples
-      OmegadivU  = psum(OmegadivU)/rsamples
-      divUdivU  = psum(divUdivU)/rsamples
-      dPsidPsi  = psum(dPsidPsi)/rsamples
-      dPhidPhi  = psum(dPhidPhi)/rsamples
+      niuavg = niuavg + niu
+      miuavg = miuavg + miu
+      rhoavg = rhoavg + rho(i,j,k)
+      rho2nd = rho2nd + rho(i,j,k)*rho(i,j,k)
+      w2drho = w2drho + (omegaz*omegaz)/rho(i,j,k)
       !
-      OmegaOmegadivU  = psum(OmegaOmegadivU)/rsamples
-      divUdivUdivU  = psum(divUdivUdivU)/rsamples
-      dPsidPsidivU  = psum(dPsidPsidivU)/rsamples
-      dPhidPhidivU  = psum(dPhidPhidivU)/rsamples
+      ensdissp = ensdissp + niu * (dvor(i,j,k,1)**2+dvor(i,j,k,2)**2)
       !
-      m11m11  = psum(m11m11)/rsamples
-      m22m22  = psum(m22m22)/rsamples
-      m11m22  = psum(m11m22)/rsamples
-      m12m21  = psum(m12m21)/rsamples
-      m12m12  = psum(m12m12)/rsamples
-      m21m21  = psum(m21m21)/rsamples
-      !
-      m11m11m11  = psum(m11m11m11)/rsamples
-      m22m22m22  = psum(m22m22m22)/rsamples
-      m11m11m22  = psum(m11m11m22)/rsamples
-      m22m22m11  = psum(m22m22m11)/rsamples
-      m11m12m12  = psum(m11m12m12)/rsamples
-      m22m12m12  = psum(m22m12m12)/rsamples
-      m11m21m21  = psum(m11m21m21)/rsamples
-      m22m21m21  = psum(m22m21m21)/rsamples
-      m11m12m21  = psum(m11m12m21)/rsamples
-      m22m21m12  = psum(m22m21m12)/rsamples
-      !
-      dudx2      = num1d3*psum(dudx2)/rsamples
-      miudrho    = psum(miudrho)/rsamples
-      csavg      = psum(csavg)/rsamples
-      dissa      = psum(dissa)/rsamples
-      !
-      machrms=sqrt(psum(machrms)/rsamples)
-      !
-      rhoe=psum(rhoe)/rsamples
-      !
-      ufluc=urms/sqrt(2.d0)
-      !
-      macht         = urms/csavg
-      taylorlength  = sqrt(miudrho*ens/dissa) ! enstrophy based
-      retaylor      = ens**(3.d0/2.d0)/dissa ! enstrophy based
-      ReL           = energy/(miudrho*(dissa**(1.d0/3.d0))) ! enstrophy based
-      kolmoglength  = (miudrho**3/dissa)**(1.d0/6.d0)
-      kolmloc       = pmin(kolmloc)
-      comlen        = pmin(comlen) ! Compressible length
-      mfpath        = pmax(mfpath)
-      !
-      skewness      = psum(du3)/(2.d0*rsamples)/sqrt((psum(du2)/(2.d0*rsamples))**3)
-      ! kolmogvelocity= sqrt(sqrt(dissipation*miudrho))
-      ! kolmogtime    = sqrt(miudrho/dissipation)
-      rhoavg = psum(rhoavg)/rsamples
-      rho2nd = psum(rho2nd)/rsamples
-      w2drho = psum(w2drho)/rsamples
-      !
-      Kw       = psum(Kw)/rsamples
-      Krho     = psum(Krho)/rsamples
-      ptheta   = psum(ptheta)/rsamples
-      uutheta  = psum(uutheta)/rsamples
-      rhouugrad= psum(rhouugrad)/rsamples
-      !
-      if(lio) then 
-        call listwrite(hand_fs,urms,ens,taylorlength,kolmoglength, &
-                        kolmloc, Retaylor,ReL,dissa,mfpath,machrms, &
-                        macht, rhoe,skewness)
-        call listwrite(hand_mom2nd,m11m11,m22m22,m11m22,m12m21,m12m12,m21m21)
-        call listwrite(hand_mom3rd,m11m11m11,m22m22m22,m11m11m22,m22m22m11,&
-                      m11m12m12,m22m12m12,m11m21m21,m22m21m21,m22m21m12,m11m12m21)
-        call listwrite(hand_skew,divU,Omega,Psi,Phi,divUdivU,dPsidPsi,&
-                      dPhidPhi,OmegadivU,OmegaOmega,dPsidPsidivU,dPhidPhidivU,&
-                      divUdivUdivU,OmegaOmegadivU,m11m11,m22m22,m11m11m11,m22m22m22)
-        call listwrite(hand_en,rhoavg,rho2nd,w2drho)
-        call listwrite(hand_weakly,Kw,Krho,ptheta,uutheta,rhouugrad)
-      endif
-    else
-      ! 3D part
-      R = 8.31446261815324d0
-      !
-      if(linit) then
-        !
-        if(lio) then
-          call listinit(filename='log/fturbstats.dat',handle=hand_fs, &
-              firstline='nstep time urms ens talen kolmavg kolmloc Reta comlen mfpath machrms macht Tavg hsource skewness')
-          call listinit(filename='log/skewness.dat',handle=hand_skew, &
-                        firstline='ns time m11s m22s m33s m11c m22c m33c th2 o2 s2 th3 o2th s2th wsw s3')
-          call listinit(filename='log/mom2nd.dat',handle=hand_mom2nd, &
-                        firstline='nstep time m12m12 m13m13 m21m21 m23m23 m31m31 m32m32')
-          call listinit(filename='log/mom3rd.dat',handle=hand_mom3rd, &
-                        firstline='nstep time m11m12m12 m11m12m21 m11m11m22')
-        endif
-        !
-        linit=.false.
-        !
-      endif
-      !
-      rsamples=dble(ia*ja*ka)
-      !
-      urms=0.d0
-      energy=0.d0
-      !
-      comlen=2*pi
-      kolmloc=2*pi
-      mfpath=0.d0
-      !
-      OmegaOmega=0.d0
-      divUdivU=0.d0
-      traceSS=0.d0
-      !
-      OmegaOmegadivU=0.d0
-      divUdivUdivU=0.d0
-      traceSSth=0.d0
-      wsw = 0.d0
-      s3 = 0.d0
-      !
-      m11m11  = 0.d0
-      m22m22  = 0.d0
-      m33m33  = 0.d0
-      m11m11m11  = 0.d0
-      m22m22m22  = 0.d0
-      m33m33m33  = 0.d0
-      !
-      m12m12  = 0.d0
-      m13m13  = 0.d0
-      m21m21  = 0.d0
-      m23m23  = 0.d0
-      m31m31  = 0.d0
-      m32m32  = 0.d0
-      m11m12m12 = 0.d0
-      m11m12m21 = 0.d0
-      m11m11m22 = 0.d0
-      !
-      machrms=0.d0
-      !
-      miudrho=0.d0
-      dudx2=0.d0
-      csavg=0.d0
-      dissa=0.d0
-      ens=0.d0
-      du3=0.d0
-      du2=0.d0
-      rhoavg=0.d0
-      rho2nd=0.d0
-      w2drho=0.d0
-      !
-      do k=1,km
-      do j=1,jm
-      do i=1,im
-        !
-        ! This point values
-        !
-        miu=miucal(tmp(i,j,k))/Reynolds
-        !
-        du11=dvel(i,j,k,1,1)
-        du12=dvel(i,j,k,1,2)
-        du13=dvel(i,j,k,1,3)
-        du21=dvel(i,j,k,2,1)
-        du22=dvel(i,j,k,2,2)
-        du23=dvel(i,j,k,2,3)
-        du31=dvel(i,j,k,3,1)
-        du32=dvel(i,j,k,3,2)
-        du33=dvel(i,j,k,3,3)
-        !
-        s11=du11
-        s12=du12+du21
-        s13=du13+du31
-        s22=du22
-        s23=du23+du32
-        s33=du33
-        !
-        div=du11+du22+du33
-        !
-        omegax=du32-du23
-        omegay=du13-du31
-        omegaz=du21-du12
-        !
-        dPsi = du11-du22
-        dPhi = du11-du33
-        !
-        v2=vel(i,j,k,1)**2+vel(i,j,k,2)**2+vel(i,j,k,3)**2
-        !
-        cs=sos(tmp(i,j,k))
-        !
-        ! Volume average values 
-        !
-        urms=urms+v2
-        energy = energy + 0.5d0*rho(i,j,k)*v2 !
-        !
-        comlen = min(comlen,sqrt(4.d0/3.d0*miu/rho(i,j,k)/abs(div)))
-        !
-        OmegaOmega = OmegaOmega + omegax*omegax  + omegay*omegay + omegaz*omegaz
-        divUdivU = divUdivU + div*div
-        traceSS = traceSS + s12*s12/2.d0 + s13*s13/2.d0 + s23*s23/2.d0 + 2.d0*dPsi*dPsi/3.d0  &
-                - 2.d0*dPsi*dPhi/3.d0 + 2.d0*dPhi*dPhi/3.d0
-        !
-        OmegaOmegadivU = OmegaOmegadivU + (omegax**2  + omegay**2 + omegaz**2)*div
-        divUdivUdivU = divUdivUdivU + div*div*div
-        traceSSth = traceSSth + (s12*s12/2.d0 + s13*s13/2.d0 + s23*s23/2.d0 + 2.d0*dPsi*dPsi/3.d0 &
-                  - 2*dPsi*dPhi/3.d0 + 2*dPhi*dPhi/3.d0)*div
-        wsw = wsw + s12*omegay*omegax/4.d0 + s13*omegaz*omegax/4.d0 + s23*omegay*omegaz/4.d0   &
-              + dPsi*omegax*omegax/12.d0 - dPsi*omegay*omegay/6.d0  + dPsi*omegaz*omegaz/12.d0 &
-              + dPhi*omegax*omegax/12.d0 + dPhi*omegay*omegay/12.d0 - dPhi*omegaz*omegaz/6.d0 
-        s3 = s3 - s12*s12*dPsi/4.d0 + s13*s13*dPsi/2.d0 - s23*s23*dPsi/4.d0 +3.d0/4.d0*s12*s13*s23 &
-            + s12*s12*dPhi/2.d0 - s13*s13*dPhi/4.d0 - s23*s23*dPhi/4.d0 &
-            - 2.d0/9.d0 * dPsi**3 + dPsi**2*dPhi /3.d0 + dPsi*dPhi**2/3.d0 - 2.d0/9.d0 * dPhi**3
-        !
-        m11m11  = m11m11 + du11**2
-        m22m22  = m22m22 + du22**2
-        m33m33  = m33m33 + du33**2
-        m11m11m11  = m11m11m11 + du11**3
-        m22m22m22  = m22m22m22 + du22**3
-        m33m33m33  = m33m33m33 + du33**3
-        !
-        m12m12  = m12m12 + du12*du12
-        m13m13  = m13m13 + du13*du13
-        m21m21  = m21m21 + du21*du21
-        m23m23  = m23m23 + du23*du23
-        m31m31  = m31m31 + du31*du31
-        m32m32  = m32m32 + du32*du32
-        !
-        m11m12m12=m11m12m12+du11*du12*du12
-        m11m12m21=m11m12m21+du11*du12*du21
-        m11m11m22=m11m11m22+du11*du11*du22
-        !
-        dudx2=dudx2+du11**2+du22**2+du33**2
-        !
-        miudrho=miudrho+miu/rho(i,j,k)
-        !
-        csavg=csavg+cs
-        !
-        machrms=machrms+v2/(cs*cs)
-        !
-        rhoe=rhoe+tmp(i,j,k)
-        !
-        dissloc = miu/rho(i,j,k)*(du11**2 + du12**2 + du13**2 + du21**2 + du22**2 + du23**2 + &
-                  du31**2 + du32**2+ du33**2)
-        !dissloc = 2.d0*miu/rho(i,j,k)*(s11**2+s22**2+s33**2+(s12**2+s13**2+s23**2)/2.d0-div**2/3.d0)
-        !
-        dissa=dissa+dissloc
-        !
-        kolmloc = min(kolmloc,sqrt(sqrt((miu/rho(i,j,k))**3/dissloc)))
-        !
-        ens=ens+(omegaz*omegaz)
-        !
-        du3=du3+(du11*du11*du11+du22*du22*du22+du33*du33*du33)
-        du2=du2+(du11*du11+du22*du22+du33*du33)
-        !
-        rhoavg = rhoavg + rho(i,j,k)
-        rho2nd = rho2nd + rho(i,j,k)*rho(i,j,k)
-        w2drho = w2drho + (omegaz*omegaz)/rho(i,j,k)
-        !
-        mfpath = max(mfpath,2.d0*miu/rho(i,j,k)/0.921/sqrt(3.d0*R*tmp(i,j,k)))
-        !
-      enddo
-      enddo
-      enddo
-      !
-      urms  = sqrt(psum(urms)/rsamples)
-      energy  = psum(energy)/rsamples
-      !
-      OmegaOmega  = psum(OmegaOmega)/rsamples
-      divUdivU  = psum(divUdivU)/rsamples
-      traceSS  = psum(traceSS)/rsamples
-      !
-      OmegaOmegadivU  = psum(OmegaOmegadivU)/rsamples
-      divUdivUdivU  = psum(divUdivUdivU)/rsamples
-      traceSSth  = psum(traceSSth)/rsamples
-      wsw = psum(wsw)/rsamples
-      s3 = psum(s3)/rsamples
-      !
-      m11m11  = psum(m11m11)/rsamples
-      m22m22  = psum(m22m22)/rsamples
-      m33m33  = psum(m33m33)/rsamples
-      m11m11m11  = psum(m11m11m11)/rsamples
-      m22m22m22  = psum(m22m22m22)/rsamples
-      m33m33m33  = psum(m33m33m33)/rsamples
-      !
-      m12m12  = psum(m12m12)/rsamples
-      m13m13  = psum(m13m13)/rsamples
-      m21m21  = psum(m21m21)/rsamples
-      m23m23  = psum(m23m23)/rsamples
-      m31m31  = psum(m31m31)/rsamples
-      m32m32  = psum(m32m32)/rsamples
-      !
-      m11m11m22  = psum(m11m11m22)/rsamples
-      m11m12m12  = psum(m11m12m12)/rsamples
-      m11m12m21  = psum(m11m12m21)/rsamples
-      !
-      dudx2      = num1d3*psum(dudx2)/rsamples
-      miudrho    = psum(miudrho)/rsamples
-      csavg      = psum(csavg)/rsamples
-      dissa      = psum(dissa)/rsamples
-      !
-      machrms=sqrt(psum(machrms)/rsamples)
-      !
-      rhoe=psum(rhoe)/rsamples
-      !
-      ens=0.5d0*psum(ens)/rsamples
-      !
-      ufluc=urms/sqrt(2.d0)
-      !
-      macht         = urms/csavg
-      taylorlength  = ufluc/sqrt(dudx2)
-      retaylor      = ufluc*taylorlength/miudrho
-      kolmoglength  = sqrt(sqrt(miudrho**3/dissa))
-      kolmloc       = pmin(kolmloc)
-      comlen        = pmin(comlen) ! Compressible length
-      mfpath        = pmax(mfpath)
-      !
-      skewness      = psum(du3)/(3.d0*rsamples)/sqrt((psum(du2)/(3.d0*rsamples))**3)
-      ! kolmogvelocity= sqrt(sqrt(dissipation*miudrho))
-      ! kolmogtime    = sqrt(miudrho/dissipation)
-      rhoavg = psum(rhoavg)/rsamples
-      rho2nd = psum(rho2nd)/rsamples
-      w2drho = psum(w2drho)/rsamples
-      !
-      if(lio) then 
-        call listwrite(hand_fs,urms,ens,taylorlength,kolmoglength, &
-                        kolmloc, Retaylor,comlen,mfpath,machrms, &
-                        macht, rhoe,hsource,skewness)
-        call listwrite(hand_skew,m11m11,m22m22,m33m33,m11m11m11,m22m22m22, &
-                        m33m33m33,divUdivU,OmegaOmega,traceSS,divUdivUdivU, &
-                        OmegaOmegadivU,traceSSth,wsw,s3)
-        call listwrite(hand_mom2nd,m12m12,m13m13,m21m21,m23m23,m31m31,m32m32)
-        call listwrite(hand_mom3rd,m11m12m12,m11m12m21,m11m11m22)
-      endif
+    enddo
+    enddo
+    !
+    !!!! Summation and average
+    !
+    urms = sqrt(psum(urms)/rsamples)
+    !
+    Kall = psum(Kall)/rsamples
+    Kw   = psum(Kw)/rsamples
+    Krho = psum(Krho)/rsamples
+    pavg = psum(pavg)/rsamples
+    eavg = psum(eavg)/rsamples
+    !
+    ptheta     = psum(ptheta)/rsamples
+    rhocotheta = psum(rhocotheta)/rsamples
+    uutheta    = psum(uutheta)/rsamples
+    rhouugrad  = psum(rhouugrad)/rsamples
+    dissps     = psum(dissps)/rsamples
+    disspd     = psum(disspd)/rsamples
+    dissp      = psum(dissp)/rsamples
+    !
+    divU  = psum(divU)/rsamples
+    Omega  = psum(Omega)/rsamples
+    Psi  = psum(Psi)/rsamples
+    Phi  = psum(Phi)/rsamples
+    !
+    OmegaOmega  = psum(OmegaOmega)/rsamples
+    OmegadivU   = psum(OmegadivU)/rsamples
+    divUdivU    = psum(divUdivU)/rsamples
+    dPsidPsi    = psum(dPsidPsi)/rsamples
+    dPhidPhi    = psum(dPhidPhi)/rsamples
+    m11m11  = psum(m11m11)/rsamples
+    m22m22  = psum(m22m22)/rsamples
+    m11m22  = psum(m11m22)/rsamples
+    m12m21  = psum(m12m21)/rsamples
+    m12m12  = psum(m12m12)/rsamples
+    m21m21  = psum(m21m21)/rsamples
+    du2     = psum(du2)/rsamples
+    !
+    OmegaOmegadivU  = psum(OmegaOmegadivU)/rsamples
+    divUdivUdivU  = psum(divUdivUdivU)/rsamples
+    dPsidPsidivU  = psum(dPsidPsidivU)/rsamples
+    dPhidPhidivU  = psum(dPhidPhidivU)/rsamples
+    m11m11m11  = psum(m11m11m11)/rsamples
+    m22m22m22  = psum(m22m22m22)/rsamples
+    m11m11m22  = psum(m11m11m22)/rsamples
+    m22m22m11  = psum(m22m22m11)/rsamples
+    m11m12m12  = psum(m11m12m12)/rsamples
+    m22m12m12  = psum(m22m12m12)/rsamples
+    m11m21m21  = psum(m11m21m21)/rsamples
+    m22m21m21  = psum(m22m21m21)/rsamples
+    m11m12m21  = psum(m11m12m21)/rsamples
+    m22m21m12  = psum(m22m21m12)/rsamples
+    du3        = psum(du3)/rsamples
+    !
+    kolmloc    = pmin(kolmloc)
+    mfpath     = pmax(mfpath)
+    !
+    machrms = sqrt(psum(machrms)/rsamples)
+    csavg   = psum(csavg)/rsamples
+    !
+    niuavg  = psum(niuavg)/rsamples
+    miuavg  = psum(miuavg)/rsamples
+    rhoavg = psum(rhoavg)/rsamples
+    rho2nd = psum(rho2nd)/rsamples
+    w2drho = psum(w2drho)/rsamples
+    !
+    dissps = dissps * miuavg
+    disspd = disspd * miuavg
+    !
+    ens = 0.5d0 * OmegaOmega
+    ensdissp = psum(ensdissp)/rsamples
+    !
+    ! Other statistics
+    macht         = urms/csavg
+    skewness      = du3/2.d0/sqrt((du2/2.d0)**3)
+    !
+    ! Scales and Reynolds number
+    ufluc     = urms/sqrt(2.d0) ! Prepare work
+    ! Energy based
+    Kollength = sqrt(sqrt(niuavg**3/dissp))
+    Taylength = ufluc/sqrt(du2/2.d0)
+    ReTay     = ufluc * Taylength / niuavg
+    Intlength = sqrt(Kall**3)/dissp
+    ReInt     = Kall**2/(niuavg*dissp)
+    ! Enstrophy based based on Herring 1974
+    EnsKol    = (niu**3/ensdissp)**(1.d0/6.d0)
+    EnsLarge  = urms/sqrt(2.d0)/ensdissp**(1.d0/3.d0)
+    ReEnsLar  = 0.5d0*urms**2/(niuavg*ensdissp**(1.d0/3.d0))
+    EnsMicro  = sqrt(niuavg*ens/ensdissp)
+    ReEnsMic  = sqrt(ens**3)/(ensdissp)
+    !
+    !
+    if(lio) then 
+      call listwrite(hand_a,urms,Kall,Kw,Krho,pavg,eavg,ptheta,&
+                    rhocotheta,uutheta,rhouugrad,dissps,disspd,dissp)
+      call listwrite(hand_b,divUdivU,dPsidPsi,dPhidPhi,OmegadivU,&
+                      OmegaOmega, m11m11,m22m22,m11m22,m12m21,m12m12,m21m21)
+      call listwrite(hand_c,dPsidPsidivU,dPhidPhidivU,divUdivUdivU, &
+                     OmegaOmegadivU,m11m11m11,m22m22m22,m11m11m22,m22m22m11,&
+                     m11m12m12,m22m21m21,m22m21m12,m11m12m21,m11m21m21,m22m12m12)
+      call listwrite(hand_d,divU,Omega,Psi,Phi,kolmloc,mfpath,&
+                    machrms,csavg,niuavg,miuavg,rhoavg,rho2nd,w2drho,ensdissp)
+      call listwrite(hand_e,ens,macht,skewness,ufluc,Kollength,Taylength,&
+                    ReTay,Intlength,ReInt,EnsKol,EnsLarge,ReEnsLar,EnsMicro,&
+                    ReEnsMic)
     endif
     !
   end subroutine udf_stalist
@@ -813,44 +591,45 @@ module userdefine
   subroutine udf_src
     !
     use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,rkstep,xmax,ymax,zmax,&
-                         lforce,nstep, forcenum
+                         lforce,nstep, forcenum,lhyper,roinf
     use parallel, only : lio,psum,bcast
     use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep,forcek
     use utility,  only : listinit,listwrite
     use constdef, only : pi
+    use statistic,only : diss_rate_cal
     !
     logical,save :: linit=.true.
     integer,save :: hand_force
     integer, allocatable, dimension(:), save :: hand_forcea
-    integer,save :: last_step = -1
     ! Random iniforce generation
     integer :: NumTheta, n, i,j,k,t
     real(8) :: theta
     real(8) :: power,rsamples,Tpower
-    real(8) :: forcekT
+    real(8) :: kappaT,kappaF
+    real(8), save :: dissp=0.d0
     real(8), allocatable,dimension(:) :: alphas, alphad
     character(len=4) :: forcename
     !
-    if(.not. allocated(hand_forcea))then
-      allocate(hand_forcea(1:forcenum))
-    else
-      if(size(hand_forcea) .ne. forcenum) stop 'Error in hand_forcea @ udf_src'
-    endif
     !
-    allocate(alphas(1:forcenum),alphad(1:forcenum))
     !
     if(lforce) then
+      !
+      if(.not. allocated(hand_forcea))then
+        allocate(hand_forcea(1:forcenum))
+      else
+        if(size(hand_forcea) .ne. forcenum) stop 'Error in hand_forcea @ udf_src'
+      endif
       !
       if(linit) then
         !
         if(lio) then
           !
-          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time forcekT power')
+          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time rkstep forcekT power disspation')
           !
           do t=1,forcenum
             write(forcename,'(i4.4)')t
             call listinit(filename='log/forcestat'//forcename//'.dat',handle =hand_forcea(t), &
-             firstline='nstep time forcek alphas alphad')
+             firstline='nstep time kappaT kappaF alphad')
           enddo
           !
         endif
@@ -859,63 +638,69 @@ module userdefine
         !
       endif
       !
-      if(last_step .ne. nstep) then
+      dissp = diss_rate_cal()
+      !
+      if(rkstep==1)then
         !
-        call udf_generate_force(alphas,alphad)
-        ! Calculate power
-        power = 0.0d0
-        Tpower = 0.0d0
+        allocate(alphas(1:forcenum),alphad(1:forcenum))
         !
-        if(ndims == 2)then
-          do j=1,jm
-          do i=1,im
-            power  = power  + rho(i,j,0)*(forcep(i,j,0,1)*vel(i,j,0,1) + forcep(i,j,0,2)*vel(i,j,0,2))
-            Tpower = Tpower + tmp(i,j,0)**4
-          enddo
-          enddo
-          !
-          rsamples=dble(ia*ja)
-        endif
-        !
-        power = psum(power)/rsamples
-        Tpower = psum(Tpower)/rsamples
-        forcekT = power/Tpower
+        call udf_generate_force(dissp,alphas,alphad)
         !
         if(lio) then 
-          call listwrite(hand_force,forcekT,power)
           !
           do t=1,forcenum
             call listwrite(hand_forcea(t),real(forcek(t),8),alphas(t),alphad(t))
           enddo
         endif
+      endif
+      !
+      !
+      ! Calculate power
+      power = 0.0d0
+      Tpower = 0.0d0
+      !
+      if(ndims == 2)then
+        do j=1,jm
+        do i=1,im
+          power  = power  + roinf*(forcep(i,j,0,1)*vel(i,j,0,1) + forcep(i,j,0,2)*vel(i,j,0,2))
+          Tpower = Tpower + tmp(i,j,0)**4
+        enddo
+        enddo
         !
-        last_step = nstep
+        rsamples=dble(ia*ja)
         !
       endif
       !
-      ! Add in qrhs and calculate power
+      power = psum(power)/rsamples
+      Tpower = psum(Tpower)/rsamples
+      kappaF = dissp/power
+      kappaT = dissp/Tpower
       !
+      if(lio) call listwrite(hand_force,dble(rkstep),kappaT,kappaF,dissp)
+      !
+      ! Add in qrhs and calculate power
       do k=0,km
       do j=0,jm
       do i=0,im
         !
         !
-        qrhs(i,j,k,2)=qrhs(i,j,k,2)+rho(i,j,k)*forcep(i,j,k,1)*jacob(i,j,k)
-        qrhs(i,j,k,3)=qrhs(i,j,k,3)+rho(i,j,k)*forcep(i,j,k,2)*jacob(i,j,k)
-        qrhs(i,j,k,4)=qrhs(i,j,k,4)+rho(i,j,k)*forcep(i,j,k,3)*jacob(i,j,k)
-        qrhs(i,j,k,5)=qrhs(i,j,k,5)+rho(i,j,k)*(forcep(i,j,k,1)*vel(i,j,k,1) + &
-                                                forcep(i,j,k,2)*vel(i,j,k,2) + &
-                                                forcep(i,j,k,3)*vel(i,j,k,3) )*jacob(i,j,k)
+        qrhs(i,j,k,2)=qrhs(i,j,k,2)+kappaF*roinf*forcep(i,j,k,1)*jacob(i,j,k)
+        qrhs(i,j,k,3)=qrhs(i,j,k,3)+kappaF*roinf*forcep(i,j,k,2)*jacob(i,j,k)
+        qrhs(i,j,k,4)=qrhs(i,j,k,4)+kappaF*roinf*forcep(i,j,k,3)*jacob(i,j,k)
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)+kappaF*roinf*(forcep(i,j,k,1)*vel(i,j,k,1) + &
+                                                  forcep(i,j,k,2)*vel(i,j,k,2) + &
+                                                  forcep(i,j,k,3)*vel(i,j,k,3) )*jacob(i,j,k)
         !
         !
         ! temperation dissipation
-        qrhs(i,j,k,5)=qrhs(i,j,k,5)-forcekT*(tmp(i,j,k)**4)*jacob(i,j,k)
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)-kappaT*(tmp(i,j,k)**4)*jacob(i,j,k)
         !
       end do
       end do
       end do
       !
       !
+      deallocate(alphas,alphad)
     endif
     !
   end subroutine udf_src
@@ -923,30 +708,34 @@ module userdefine
   !| The end of the subroutine udf_src.                                |
   !+-------------------------------------------------------------------+
   !
-  subroutine udf_generate_force(alphas, alphad)
+  subroutine udf_generate_force(dissp,alphas, alphad)
     !
     use commvar, only: ndims
+    real(8), intent(in) ::  dissp
     real(8), allocatable, dimension(:), intent(out) :: alphas, alphad
     !   
     if(ndims == 2) then
-      call udf_generate_force_2D(alphas, alphad)
+      call udf_generate_force_2D(dissp,alphas, alphad)
     else
-      stop "Not implemented error! udf_generate_force3D"
+      print *, "ndims = ", ndims
+      stop "Not implemented error! udf_generate_force unvalid ndims"
     endif
     !
   end subroutine udf_generate_force
     !
-  subroutine udf_generate_force_2D(alphas, alphad)
+  subroutine udf_generate_force_2D(dissipation,alphas, alphad)
     !
     use, intrinsic :: iso_c_binding
-    use commvar,        only : forcenum,hypervisk,hypervismiu,im,jm,ia,ja
+    use commvar,        only : forcenum,hypervisk,hypervismiu,im,jm,ia,ja,deltat,lhyper
     use commarray,      only : vel, forcep,forcek,forcespes,forcesped
     use fftwlink,       only : jmf, alloc_local, iafftw, jmfftw, fftw_grid_fence, fftw_fence_grid, jafftw, j0f
     use parallel,       only : MPI_COMM_WORLD, psum, mpiright, mpiup, mpitag, mpileft, mpidown
     use udf_tool,       only : GenerateWave, kint
     use mpi
+    use statistic,      only : diss_rate_cal
     include 'fftw3-mpi.f03'
     !
+    real(8), intent(in) ::  dissipation
     real(8), allocatable, dimension(:), intent(out):: alphas, alphad
     real(8), allocatable, dimension(:,:) :: localvel1t, localvel2t, force1t, force2t
     real(8), allocatable, dimension(:,:) :: fftvel1, fftvel2, fftforce1, fftforce2
@@ -1039,30 +828,39 @@ module userdefine
     do j=1,jmf
     do i=1,ia
         kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
-        usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
-        udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
-        u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
-        u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
-        u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
-        u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+        if(kk > 1.d-5)then
+          usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
+          udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
+          u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
+          u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
+          u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
+          u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+        else
+          usspe(i,j) = 0
+          udspe(i,j) = 0
+          u1d(i,j) = 0
+          u2d(i,j) = 0
+          u1s(i,j) = 0
+          u2s(i,j) = 0
+        endif
         kOrdinal = kint(kk,dk,2,1.d0)
         if(kOrdinal <= allkmax)then
-          Es(kOrdinal) = Es(kOrdinal) + usspe(i,j)*conjg(usspe(i,j))/2
-          Ed(kOrdinal) = Ed(kOrdinal) + udspe(i,j)*conjg(udspe(i,j))/2
+          Es(kOrdinal) = Es(kOrdinal) + usspe(i,j)*conjg(usspe(i,j))
+          Ed(kOrdinal) = Ed(kOrdinal) + udspe(i,j)*conjg(udspe(i,j))
         endif
         !
     end do
     end do
     !
     !
-    do i=0,allkmax
+    do i=1,allkmax
       Es(i) = psum(Es(i))
       Ed(i) = psum(Ed(i))
     enddo
     !
     do t=1,forcenum
-      alphas(t) = min(max(forcespes(t)/Es(forcek(t))-1.d0, 0.d0),10.d0)
-      alphad(t) = min(max(forcesped(t)/Ed(forcek(t))-1.d0, 0.d0),10.d0)
+      alphas(t) = min(max(forcespes(t)*dissipation/Es(forcek(t)), 0.d0),10.d0)
+      alphad(t) = min(max(forcesped(t)*dissipation/Ed(forcek(t)), 0.d0),10.d0)
     enddo
     !
     !
@@ -1078,10 +876,6 @@ module userdefine
         endif
       enddo
       !
-      if(kk>hypervisk)then
-        fftforce1c(i,j) = fftforce1c(i,j) - hypervismiu * kk**4 * u1spe(i,j)
-        fftforce2c(i,j) = fftforce2c(i,j) - hypervismiu * kk**4 * u2spe(i,j)
-      endif
     enddo
     enddo
     !
@@ -1166,6 +960,7 @@ module userdefine
     deallocate(localvel1t, localvel2t, force1t, force2t)
     deallocate(fftvel1, fftvel2, fftforce1, fftforce2)
     deallocate(k1,k2,usspe,udspe, u1d, u1s, u2d, u2s)
+    deallocate(Es,Ed)
     deallocate(sendim,sendjm,recvim,recvjm)
     !
   end subroutine udf_generate_force_2D

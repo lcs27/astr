@@ -989,7 +989,7 @@ module readwrite
   subroutine readic
     !
     use commvar,   only: ickmax,icurms,icsolenoidal,icdilatational,&
-                          lforce,forcenum,hypervisk,hypervismiu
+                          lforce,lhyper,forcenum,hypervisk,hypervismiu
     use commarray, only: forcek,forcespes,forcesped
     use parallel,only: bcast
     !
@@ -1007,7 +1007,7 @@ module readwrite
       read(fh,'(////)')
       read(fh,*)ickmax,icurms,icsolenoidal,icdilatational
       read(fh,'(/)')
-      read(fh,*)lforce
+      read(fh,*)lforce,lhyper
       read(fh,'(/)')
     endif
     call bcast(ickmax)
@@ -1015,16 +1015,22 @@ module readwrite
     call bcast(icsolenoidal)
     call bcast(icdilatational)
     call bcast(lforce)
+    call bcast(lhyper)
     !
     if(lforce)then
+      if(lhyper)then
+        if(mpirank==0)then
+          read(fh,*)hypervisk,hypervismiu
+          read(fh,'(/)')
+        endif
+        call bcast(hypervisk)
+        call bcast(hypervismiu)
+      endif
+      !
       if(mpirank==0)then
-        read(fh,*)hypervisk,hypervismiu
-        read(fh,'(/)')
         read(fh,*)forcenum
         read(fh,'(/)')
       endif
-      call bcast(hypervisk)
-      call bcast(hypervismiu)
       call bcast(forcenum)
       !
       allocate(forcek(1:forcenum),forcespes(1:forcenum),forcesped(1:forcenum))
@@ -1047,10 +1053,13 @@ module readwrite
       print *, "     kmax = ", ickmax, "with urms:",icurms,". Ratio S=",icsolenoidal,"D=",icdilatational
       if(lforce)then
         print*,"  ** Force activated!"
-        print*,"     hypervisk = ",hypervisk,"hypervismiu = ",hypervismiu
-        print*,"     fixing energy at ",forcenum,"wavenumbers:"
+        if(lhyper)then
+          print*,"     Add hyperviscosity!"
+          print*,"     hypervisk = ",hypervisk,"hypervismiu = ",hypervismiu
+        endif
+        print*,"     Injecting energy at ",forcenum,"wavenumbers:"
         do i=1,forcenum
-          print*,i,") k= ", forcek(i), 'with Es = ', forcespes(i), 'and Ed=', forcesped(i)
+          print*,i,") k= ", forcek(i), 'with proportion of Es = ', forcespes(i), 'and proportion of Ed=', forcesped(i)
         enddo
       endif
       !

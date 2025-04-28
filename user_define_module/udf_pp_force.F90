@@ -593,6 +593,7 @@ module udf_pp_force
         character(len=128) :: outfilename
         integer :: values(8), ierr
         real(8), allocatable,dimension(:) :: alphas, alphad
+        real(8) :: dissp
         !
         ! 
         call readinput
@@ -646,7 +647,7 @@ module udf_pp_force
         !
         allocate(forcep(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3))
         !
-        call udf_generate_force(alphas, alphad)
+        call udf_generate_force(alphas, alphad, dissp)
         !
         call date_and_time(values=values)
         if(mpirank==0)  print *,'Finish!' , values(5),":",values(6),":",values(7),":",values(8)

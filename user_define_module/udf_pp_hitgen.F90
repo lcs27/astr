@@ -26,7 +26,7 @@ module udf_pp_hitgen
     ! local data
     character(len=64) :: casefolder,inputfile,outputfile,viewmode, &
                           flowfieldfile, readmode,method
-    integer :: velmethod,thermomethod
+    integer :: velmethod,thermomethod,filetype
     !
     !
     if(mpirank == 0) then
@@ -68,10 +68,13 @@ module udf_pp_hitgen
         print *, ' ** 2D mode'
         call readkeyboad(method)
         read(method,'(i1)')thermomethod
+        call readkeyboad(method)
+        read(method,'(i1)')filetype
       endif
       call bcast(thermomethod)
+      call bcast(filetype)
       !
-      call hitgenmodifyp2d(thermomethod)
+      call hitgenmodifyp2d(thermomethod,filetype)
       !
     elseif(trim(readmode)=='hitstat2D') then
       !
@@ -81,6 +84,17 @@ module udf_pp_hitgen
       !
       if(mpirank == 0)   print *, ' ** hitstat 3D'
       call hitstat3d
+    elseif(trim(readmode)=='scale3D') then
+      !
+      if(mpirank == 0) then
+        print *, ' ** scale3D'
+        !
+        call readkeyboad(flowfieldfile)
+        print*,' ** flowfieldfile command: ',flowfieldfile
+      endif
+      call bcast(flowfieldfile)
+      !
+      call scale3D(flowfieldfile)
     else
       print* ,"Readmode is not defined!", readmode
     endif
@@ -298,7 +312,7 @@ module udf_pp_hitgen
     vel(0:im,0,1:km,3) = vel(0:im,jm,1:km,3)
     !
     allocate(sendkm(0:im,0:jm),recvkm(0:im,0:jm))
-    !TODO: examine
+    !
     sendkm(0:im,0:jm) = vel(0:im,0:jm,km,1)
     call mpi_sendrecv(sendkm,(im+1)*(jm+1),mpi_real8,mpifront,mpitag,  &
                       recvkm,(im+1)*(jm+1),mpi_real8,mpiback,mpitag,   &
@@ -618,7 +632,7 @@ module udf_pp_hitgen
   !+-------------------------------------------------------------------+
   !
   !
-  subroutine hitgenmodifyp2d(thermomethod)
+  subroutine hitgenmodifyp2d(thermomethod,filetype)
     !
     use readwrite, only : readgrid, readic, readinput
     use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm, &
@@ -633,7 +647,7 @@ module udf_pp_hitgen
     use solver,    only : refcal
     include 'fftw3-mpi.f03'
     !
-    integer, intent(in) :: thermomethod
+    integer, intent(in) :: thermomethod,filetype
     integer :: i,j,n
     !
     call readinput
@@ -658,8 +672,13 @@ module udf_pp_hitgen
     allocate(prs(0:im,0:jm,0:km), tmp(0:im,0:jm,0:km))
     !
     call h5io_init(trim('datin/flowini2d.h5'),mode='read')
-    call h5read(varname='u1', var=vel(0:im,0:jm,0,1),dir='k')
-    call h5read(varname='u2', var=vel(0:im,0:jm,0,2),dir='k')
+    if(filetype == 0)then
+      call h5read(varname='u1', var=vel(0:im,0:jm,0,1),dir='k')
+      call h5read(varname='u2', var=vel(0:im,0:jm,0,2),dir='k')
+    else
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:0,1),mode = 'h')
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:0,2),mode = 'h')
+    endif
     call h5io_end
     !
     !
@@ -1130,6 +1149,14 @@ module udf_pp_hitgen
       Ac = 1.d0
       IniEnergDis = Ac*((k0/wnb)**(2.d0))
       !
+    case(6)
+      !
+      if(wnb<k0)then
+        IniEnergDis = 1.d0
+      else
+        IniEnergDis = 0.d0
+      endif
+      !
     case default
       stop "Undefined IniEnergDis method"
     end select
@@ -1210,7 +1237,7 @@ module udf_pp_hitgen
       do i=0,im
         P(i,j,k) = roinf * (dvel(i,j,0,1,1) ** 2 + dvel(i,j,0,2,2) ** 2 + dvel(i,j,0,3,3) ** 2 &
                           + 2 * dvel(i,j,0,1,2) * dvel(i,j,0,2,1) + 2 * dvel(i,j,0,1,3) * dvel(i,j,0,3,1) &
-                          + 2 * dvel(i,j,0,2,3) * dvel(i,j,0,3,2))
+                          + 2 * dvel(i,j,0,2,3) * dvel(i,j,0,3,2)) !TODO
         miu = miucal(thermal(density=rho(i,j,0),pressure=prs(i,j,0)))/Reynolds
         div = dvel(i,j,0,1,1) + dvel(i,j,0,2,2) + dvel(i,j,0,3,3)
         sigma(i,j,0,1,1) = 2 * miu * dvel(i,j,0,1,1) - 2.d0/3.d0 * miu * div
@@ -1486,5 +1513,419 @@ module udf_pp_hitgen
     deallocate(sigma,dsigma11,dsigma12,dsigma22)
     deallocate(ddsigma11dx1,ddsigma12dx1,ddsigma22dx2)
   end subroutine incompressuresolve2d
+  !
+  subroutine scale3D(flowfile)
+    !!
+    use hdf5io
+    use readwrite, only : readinput
+    use commvar,   only : im,jm,km,ia,ja,ka
+    use commarray, only : rho,vel,prs,tmp
+    use parallel,  only : dataswap, mpisizedis,parapp,parallelini,mpirank, mpistop, &
+                          mpi_ikgroup,mpi_kgroup,mpitag,mpiright, mpiup, mpileft, mpidown, &
+                          mpifront, mpiback
+    use solver,    only : refcal
+    use mpi
+    !
+    character(len=*),intent(in) :: flowfile
+    !
+    real(8), allocatable, dimension(:,:,:) :: rhon,prsn,tmpn
+    real(8), allocatable, dimension(:,:,:,:) :: veln
+    real(8), allocatable, dimension(:,:) :: sendimjm,recvimjm,sendimkm,&
+                                            recvimkm,sendjmkm,recvjmkm
+    !
+    integer :: i,j,k,ratio1,ratio2,ratio3,l,m,n,imn,jmn,kmn,ian,jan,kan, ierr
+    integer :: status(mpi_status_size) 
+    !
+    character(len=1) :: modeio
+    character(len=128) :: outfilename
+    !
+    ian = 1024
+    jan = 1024
+    kan = 1024
+    call readinput
+    !
+    call mpisizedis
+    if(mpirank==0) print*, '** mpisizedis done!'
+    !
+    call parapp
+    if(mpirank==0) print*, '** parapp done!'
+    !
+    call parallelini
+    if(mpirank==0) print*, '** parallelini done!'
+    !
+    call refcal
+    if(mpirank==0) print*, '** refcal done!'
+    !
+    modeio='h'
+    !
+    if(mpirank==0)then
+      if(ka==0)then
+        print *,"2D, ia:",ia,",ja:",ja
+      else
+        print *, "3D grid dimensions: ia=", ia, ", ja=", ja, ", ka=", ka
+      endif
+    endif
+    !
+    !
+    !allocate(x(0:im,0:jm,0:km,1:3) )
+    allocate(vel(0:im,0:jm,0:km,1:3))
+    allocate(rho(0:im,0:jm,0:km),prs(0:im,0:jm,0:km),tmp(0:im,0:jm,0:km))
+    !
+    !call geomcal
+    !
+    call h5io_init(filename=flowfile,mode='read')
+    !
+    call h5read(varname='ro',var=rho(0:im,0:jm,0:km), mode = modeio)
+    call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+    call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+    call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+    call h5read(varname='p',var=prs(0:im,0:jm,0:km), mode = modeio)
+    call h5read(varname='t',var=tmp(0:im,0:jm,0:km), mode = modeio)
+    !
+    call h5io_end
+    !
+    !!!! Global size verification assumption
+    if(mpirank==0)then
+      print *,'ia=',ia,'ian=',ian
+      print *,'ja=',ja,'jan=',jan
+      print *,'ka=',ka,'kan=',kan
+    endif
+    !
+    ! 
+    !!!! Do scale
+    !! 3D case
+    imn = im*2
+    jmn = jm*2
+    kmn = km*2
+    allocate(veln(0:imn,0:jmn,0:kmn,1:3))
+    allocate(rhon(0:imn,0:jmn,0:kmn), &
+              prsn(0:imn,0:jmn,0:kmn), &
+              tmpn(0:imn,0:jmn,0:kmn))
+    !
+    do i=0,(im-1)
+    do j=0,(jm-1)
+    do k=0,(km-1)
+      ! 
+      veln(2*i,2*j,2*k,1)       =  vel(i,j,k,1)
+      veln(2*i+1,2*j,2*k,1)     = (vel(i,j,k,1) + vel(i+1,j,k,1)    )/2
+      veln(2*i+1,2*j+1,2*k,1)   = (vel(i,j,k,1) + vel(i+1,j+1,k,1)  )/2
+      veln(2*i+1,2*j,2*k+1,1)   = (vel(i,j,k,1) + vel(i+1,j,k+1,1)  )/2
+      veln(2*i+1,2*j+1,2*k+1,1) = (vel(i,j,k,1) + vel(i+1,j+1,k+1,1))/2
+      veln(2*i,2*j+1,2*k,1)     = (vel(i,j,k,1) + vel(i,j+1,k,1)    )/2
+      veln(2*i,2*j,2*k+1,1)     = (vel(i,j,k,1) + vel(i,j,k+1,1)    )/2
+      veln(2*i,2*j+1,2*k+1,1)   = (vel(i,j,k,1) + vel(i,j+1,k+1,1)  )/2
+
+      veln(2*i,2*j,2*k,2)       =  vel(i,j,k,2)
+      veln(2*i+1,2*j,2*k,2)     = (vel(i,j,k,2) + vel(i+1,j,k,2)    )/2
+      veln(2*i+1,2*j+1,2*k,2)   = (vel(i,j,k,2) + vel(i+1,j+1,k,2)  )/2
+      veln(2*i+1,2*j,2*k+1,2)   = (vel(i,j,k,2) + vel(i+1,j,k+1,2)  )/2
+      veln(2*i+1,2*j+1,2*k+1,2) = (vel(i,j,k,2) + vel(i+1,j+1,k+1,2))/2
+      veln(2*i,2*j+1,2*k,2)     = (vel(i,j,k,2) + vel(i,j+1,k,2)    )/2
+      veln(2*i,2*j,2*k+1,2)     = (vel(i,j,k,2) + vel(i,j,k+1,2)    )/2
+      veln(2*i,2*j+1,2*k+1,2)   = (vel(i,j,k,2) + vel(i,j+1,k+1,2)  )/2
+
+      veln(2*i,2*j,2*k,3)       =  vel(i,j,k,3)
+      veln(2*i+1,2*j,2*k,3)     = (vel(i,j,k,3) + vel(i+1,j,k,3)    )/2
+      veln(2*i+1,2*j+1,2*k,3)   = (vel(i,j,k,3) + vel(i+1,j+1,k,3)  )/2
+      veln(2*i+1,2*j,2*k+1,3)   = (vel(i,j,k,3) + vel(i+1,j,k+1,3)  )/2
+      veln(2*i+1,2*j+1,2*k+1,3) = (vel(i,j,k,3) + vel(i+1,j+1,k+1,3))/2
+      veln(2*i,2*j+1,2*k,3)     = (vel(i,j,k,3) + vel(i,j+1,k,3)    )/2
+      veln(2*i,2*j,2*k+1,3)     = (vel(i,j,k,3) + vel(i,j,k+1,3)    )/2
+      veln(2*i,2*j+1,2*k+1,3)   = (vel(i,j,k,3) + vel(i,j+1,k+1,3)  )/2
+
+      prsn(2*i,2*j,2*k)        = prs(i,j,k)
+      prsn(2*i+1,2*j,2*k)     = (prs(i,j,k) + prs(i+1,j,k)    )/2
+      prsn(2*i+1,2*j+1,2*k)   = (prs(i,j,k) + prs(i+1,j+1,k)  )/2
+      prsn(2*i+1,2*j,2*k+1)   = (prs(i,j,k) + prs(i+1,j,k+1)  )/2
+      prsn(2*i+1,2*j+1,2*k+1) = (prs(i,j,k) + prs(i+1,j+1,k+1))/2
+      prsn(2*i,2*j+1,2*k)     = (prs(i,j,k) + prs(i,j+1,k)    )/2
+      prsn(2*i,2*j,2*k+1)     = (prs(i,j,k) + prs(i,j,k+1)    )/2
+      prsn(2*i,2*j+1,2*k+1)   = (prs(i,j,k) + prs(i,j+1,k+1)  )/2
+
+      rhon(2*i,2*j,2*k)       = rho(i,j,k)
+      rhon(2*i+1,2*j,2*k)     = (rho(i,j,k) + rho(i+1,j,k)     )/2
+      rhon(2*i+1,2*j+1,2*k)   = (rho(i,j,k) + rho(i+1,j+1,k)   )/2
+      rhon(2*i+1,2*j,2*k+1)   = (rho(i,j,k) + rho(i+1,j,k+1)   )/2
+      rhon(2*i+1,2*j+1,2*k+1) = (rho(i,j,k) + rho(i+1,j+1,k+1) )/2
+      rhon(2*i,2*j+1,2*k)     = (rho(i,j,k) + rho(i,j+1,k)     )/2
+      rhon(2*i,2*j,2*k+1)     = (rho(i,j,k) + rho(i,j,k+1)     )/2
+      rhon(2*i,2*j+1,2*k+1)   = (rho(i,j,k) + rho(i,j+1,k+1)   )/2
+
+      tmpn(2*i,2*j,2*k)        = tmp(i,j,k)
+      tmpn(2*i+1,2*j,2*k)     = (tmp(i,j,k) + tmp(i+1,j,k)     )/2
+      tmpn(2*i+1,2*j+1,2*k)   = (tmp(i,j,k) + tmp(i+1,j+1,k)   )/2
+      tmpn(2*i+1,2*j,2*k+1)   = (tmp(i,j,k) + tmp(i+1,j,k+1)   )/2
+      tmpn(2*i+1,2*j+1,2*k+1) = (tmp(i,j,k) + tmp(i+1,j+1,k+1) )/2
+      tmpn(2*i,2*j+1,2*k)     = (tmp(i,j,k) + tmp(i,j+1,k)     )/2
+      tmpn(2*i,2*j,2*k+1)     = (tmp(i,j,k) + tmp(i,j,k+1)     )/2
+      tmpn(2*i,2*j+1,2*k+1)   = (tmp(i,j,k) + tmp(i,j+1,k+1)   )/2
+    end do
+    end do
+    end do
+    !
+    !
+    !
+    call mpi_sendrecv(veln(0,0,0,1) ,1,mpi_real8,mpileft ,mpitag, &
+          veln(imn,0,0,1),1,mpi_real8,mpiright,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,1) ,1,mpi_real8,mpidown,mpitag, &
+          veln(0,jmn,0,1),1,mpi_real8,mpiup  ,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,1) ,1,mpi_real8,mpiback ,mpitag, &
+          veln(0,0,kmn,1),1,mpi_real8,mpifront,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,2) ,1,mpi_real8,mpileft ,mpitag, &
+          veln(imn,0,0,2),1,mpi_real8,mpiright,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,2) ,1,mpi_real8,mpidown,mpitag, &
+          veln(0,jmn,0,2),1,mpi_real8,mpiup  ,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,2) ,1,mpi_real8,mpiback ,mpitag, &
+          veln(0,0,kmn,2),1,mpi_real8,mpifront,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,3) ,1,mpi_real8,mpileft ,mpitag, &
+          veln(imn,0,0,3),1,mpi_real8,mpiright,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,3) ,1,mpi_real8,mpidown,mpitag, &
+          veln(0,jmn,0,3),1,mpi_real8,mpiup  ,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(veln(0,0,0,3) ,1,mpi_real8,mpiback ,mpitag, &
+          veln(0,0,kmn,3),1,mpi_real8,mpifront,mpitag, &
+          mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    ! For prsn
+    call mpi_sendrecv(prsn(0,0,0) ,1,mpi_real8,mpileft ,mpitag, &
+    prsn(imn,0,0),1,mpi_real8,mpiright,mpitag, &
+    mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(prsn(0,0,0) ,1,mpi_real8,mpidown,mpitag, &
+      prsn(0,jmn,0),1,mpi_real8,mpiup  ,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(prsn(0,0,0) ,1,mpi_real8,mpiback ,mpitag, &
+      prsn(0,0,kmn),1,mpi_real8,mpifront,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    ! For rhon
+    call mpi_sendrecv(rhon(0,0,0) ,1,mpi_real8,mpileft ,mpitag, &
+    rhon(imn,0,0),1,mpi_real8,mpiright,mpitag, &
+    mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(rhon(0,0,0) ,1,mpi_real8,mpidown,mpitag, &
+      rhon(0,jmn,0),1,mpi_real8,mpiup  ,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(rhon(0,0,0) ,1,mpi_real8,mpiback ,mpitag, &
+      rhon(0,0,kmn),1,mpi_real8,mpifront,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    ! For tmpn
+    call mpi_sendrecv(tmpn(0,0,0) ,1,mpi_real8,mpileft ,mpitag, &
+    tmpn(imn,0,0),1,mpi_real8,mpiright,mpitag, &
+    mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(tmpn(0,0,0) ,1,mpi_real8,mpidown,mpitag, &
+      tmpn(0,jmn,0),1,mpi_real8,mpiup  ,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    call mpi_sendrecv(tmpn(0,0,0) ,1,mpi_real8,mpiback ,mpitag, &
+      tmpn(0,0,kmn),1,mpi_real8,mpifront,mpitag, &
+      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    !
+    allocate(sendimjm(0:imn,0:jmn),recvimjm(0:imn,0:jmn), &
+         sendimkm(0:imn,0:kmn),recvimkm(0:imn,0:kmn), &
+         sendjmkm(0:jmn,0:kmn),recvjmkm(0:jmn,0:kmn))
+    !v1
+    sendimjm(0:imn,0:jmn) = veln(0:imn,0:jmn,0,1)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    veln(0:imn,0:jmn,kmn,1) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = veln(0:imn,0,0:kmn,1)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(0:imn,jmn,0:kmn,1) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = veln(0,0:jmn,0:kmn,1)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(imn,0:jmn,0:kmn,1) = recvjmkm(0:jmn,0:kmn)
+    ! v2
+    sendimjm(0:imn,0:jmn) = veln(0:imn,0:jmn,0,2)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    veln(0:imn,0:jmn,kmn,2) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = veln(0:imn,0,0:kmn,2)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(0:imn,jmn,0:kmn,2) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = veln(0,0:jmn,0:kmn,2)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(imn,0:jmn,0:kmn,2) = recvjmkm(0:jmn,0:kmn)
+    ! v3
+    sendimjm(0:imn,0:jmn) = veln(0:imn,0:jmn,0,3)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    veln(0:imn,0:jmn,kmn,3) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = veln(0:imn,0,0:kmn,3)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(0:imn,jmn,0:kmn,3) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = veln(0,0:jmn,0:kmn,3)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    veln(imn,0:jmn,0:kmn,3) = recvjmkm(0:jmn,0:kmn)
+    !
+    ! prs
+    sendimjm(0:imn,0:jmn) = prsn(0:imn,0:jmn,0)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    prsn(0:imn,0:jmn,kmn) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = prsn(0:imn,0,0:kmn)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    prsn(0:imn,jmn,0:kmn) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = prsn(0,0:jmn,0:kmn)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    prsn(imn,0:jmn,0:kmn) = recvjmkm(0:jmn,0:kmn)
+    ! rho
+    sendimjm(0:imn,0:jmn) = rhon(0:imn,0:jmn,0)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    rhon(0:imn,0:jmn,kmn) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = rhon(0:imn,0,0:kmn)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    rhon(0:imn,jmn,0:kmn) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = rhon(0,0:jmn,0:kmn)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    rhon(imn,0:jmn,0:kmn) = recvjmkm(0:jmn,0:kmn)
+    ! tmp
+    sendimjm(0:imn,0:jmn) = tmpn(0:imn,0:jmn,0)
+    call mpi_sendrecv(sendimjm,(imn+1)*(jmn+1),mpi_real8,mpiback ,mpitag, &
+              recvimjm,(imn+1)*(jmn+1),mpi_real8,mpifront,mpitag, &
+              mpi_comm_world,status,ierr)
+    tmpn(0:imn,0:jmn,kmn) = recvimjm(0:imn,0:jmn)
+    mpitag=mpitag+1
+    !
+    sendimkm(0:imn,0:kmn) = tmpn(0:imn,0,0:kmn)
+    call mpi_sendrecv(sendimkm,(imn+1)*(kmn+1),mpi_real8,mpidown,mpitag, &
+              recvimkm,(imn+1)*(kmn+1),mpi_real8,mpiup  ,mpitag, &
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    tmpn(0:imn,jmn,0:kmn) = recvimkm(0:imn,0:kmn)
+    !
+    sendjmkm(0:jmn,0:kmn) = tmpn(0,0:jmn,0:kmn)
+    call mpi_sendrecv(sendjmkm,(jmn+1)*(kmn+1),mpi_real8,mpileft ,mpitag,&
+              recvjmkm,(jmn+1)*(kmn+1),mpi_real8,mpiright,mpitag,&
+              mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    tmpn(imn,0:jmn,0:kmn) = recvjmkm(0:jmn,0:kmn)
+    !
+    !
+    ia = ia * 2
+    ja = ja * 2
+    ka = ka * 2
+    !
+    call parapp
+    !
+    deallocate(mpi_ikgroup)
+    !
+    call parallelini
+    !
+    if((imn .ne. im) .or. (jmn .ne. jm) .or. (kmn .ne. km))then
+      stop "Problem emerge when redistributing the array"
+    end if
+    !
+    !
+    outfilename = flowfile//'_scaled.'//modeio//'5'
+    !
+    call h5io_init(trim(outfilename),mode='write')
+    call h5write(varname='ro',var=rhon(0:im,0:jm,0:km), mode = modeio)
+    call h5write(varname='u1',var=veln(0:im,0:jm,0:km,1), mode = modeio)
+    call h5write(varname='u2',var=veln(0:im,0:jm,0:km,2), mode = modeio)
+    call h5write(varname='u3',var=veln(0:im,0:jm,0:km,3), mode = modeio)
+    call h5write(varname='p', var=prsn(0:im,0:jm,0:km), mode = modeio)
+    call h5write(varname='t', var=tmpn(0:im,0:jm,0:km), mode = modeio)
+    call h5io_end
+    !
+    if(mpirank==0) print*,' <<< ', outfilename, '... done.'
+    !
+    !
+    call mpi_barrier(mpi_comm_world, ierr)
+    call mpistop
+    !
+    deallocate(rho,vel,prs,tmp)
+    deallocate(veln,rhon,prsn,tmpn)
+    deallocate(recvimjm,recvimkm,recvjmkm,sendimjm,sendimkm,sendjmkm)
+    !
+  end subroutine scale3D
   !
   end module udf_pp_hitgen
