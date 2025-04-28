@@ -2086,15 +2086,15 @@ module udf_pp_SGS
           w2_filted(i,j,k) = w2_filted(i,j,k)/rho_filted(i,j,k)
           w3_filted(i,j,k) = w3_filted(i,j,k)/rho_filted(i,j,k)
           !
-          tau(1,1,i,j,k) = dreal(w1w1_filted(i,j,k) - rho_filted(i,j,k) * w1_filted(i,j,k) * w1_filted(i,j,k))
-          tau(1,2,i,j,k) = dreal(w1w2_filted(i,j,k) - rho_filted(i,j,k) * w1_filted(i,j,k) * w2_filted(i,j,k))
-          tau(1,3,i,j,k) = dreal(w1w3_filted(i,j,k) - rho_filted(i,j,k) * w1_filted(i,j,k) * w3_filted(i,j,k))
-          tau(2,1,i,j,k) = dreal(w2w1_filted(i,j,k) - rho_filted(i,j,k) * w2_filted(i,j,k) * w1_filted(i,j,k))
-          tau(2,2,i,j,k) = dreal(w2w2_filted(i,j,k) - rho_filted(i,j,k) * w2_filted(i,j,k) * w2_filted(i,j,k))
-          tau(2,3,i,j,k) = dreal(w2w3_filted(i,j,k) - rho_filted(i,j,k) * w2_filted(i,j,k) * w3_filted(i,j,k))
-          tau(3,1,i,j,k) = dreal(w3w1_filted(i,j,k) - rho_filted(i,j,k) * w3_filted(i,j,k) * w1_filted(i,j,k))
-          tau(3,2,i,j,k) = dreal(w3w2_filted(i,j,k) - rho_filted(i,j,k) * w3_filted(i,j,k) * w2_filted(i,j,k))
-          tau(3,3,i,j,k) = dreal(w3w3_filted(i,j,k) - rho_filted(i,j,k) * w3_filted(i,j,k) * w3_filted(i,j,k))
+          tau(1,1,i,j,k) = dreal(w1w1_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w1_filted(i,j,k)) * dreal(w1_filted(i,j,k))
+          tau(1,2,i,j,k) = dreal(w1w2_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w1_filted(i,j,k)) * dreal(w2_filted(i,j,k))
+          tau(1,3,i,j,k) = dreal(w1w3_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w1_filted(i,j,k)) * dreal(w3_filted(i,j,k))
+          tau(2,1,i,j,k) = dreal(w2w1_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w2_filted(i,j,k)) * dreal(w1_filted(i,j,k))
+          tau(2,2,i,j,k) = dreal(w2w2_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w2_filted(i,j,k)) * dreal(w2_filted(i,j,k))
+          tau(2,3,i,j,k) = dreal(w2w3_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w2_filted(i,j,k)) * dreal(w3_filted(i,j,k))
+          tau(3,1,i,j,k) = dreal(w3w1_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w3_filted(i,j,k)) * dreal(w1_filted(i,j,k))
+          tau(3,2,i,j,k) = dreal(w3w2_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w3_filted(i,j,k)) * dreal(w2_filted(i,j,k))
+          tau(3,3,i,j,k) = dreal(w3w3_filted(i,j,k)) - dreal(rho_filted(i,j,k)) * dreal(w3_filted(i,j,k)) * dreal(w3_filted(i,j,k))
           !
         enddo
         enddo
@@ -2144,15 +2144,15 @@ module udf_pp_SGS
         do j=1,jm
         do i=1,im
           !
-          Pi_tot(m) = Pi_tot(m) + tau(1,1,i,j,k) * A11_filted(i,j,k) + &
-                                  tau(1,2,i,j,k) * A12_filted(i,j,k) + &
-                                  tau(1,3,i,j,k) * A13_filted(i,j,k) + &
-                                  tau(2,1,i,j,k) * A21_filted(i,j,k) + &
-                                  tau(2,2,i,j,k) * A22_filted(i,j,k) + &
-                                  tau(2,3,i,j,k) * A23_filted(i,j,k) + &
-                                  tau(3,1,i,j,k) * A31_filted(i,j,k) + &
-                                  tau(3,2,i,j,k) * A32_filted(i,j,k) + &
-                                  tau(3,3,i,j,k) * A33_filted(i,j,k)
+          Pi_tot(m) = Pi_tot(m) + tau(1,1,i,j,k) * dreal(A11_filted(i,j,k)) + &
+                                  tau(1,2,i,j,k) * dreal(A12_filted(i,j,k)) + &
+                                  tau(1,3,i,j,k) * dreal(A13_filted(i,j,k)) + &
+                                  tau(2,1,i,j,k) * dreal(A21_filted(i,j,k)) + &
+                                  tau(2,2,i,j,k) * dreal(A22_filted(i,j,k)) + &
+                                  tau(2,3,i,j,k) * dreal(A23_filted(i,j,k)) + &
+                                  tau(3,1,i,j,k) * dreal(A31_filted(i,j,k)) + &
+                                  tau(3,2,i,j,k) * dreal(A32_filted(i,j,k)) + &
+                                  tau(3,3,i,j,k) * dreal(A33_filted(i,j,k))
           !
         end do
         end do
@@ -2260,13 +2260,13 @@ module udf_pp_SGS
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A21,A22,A23
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A31,A32,A33
       !
-      complex(8), allocatable, dimension(:,:,:) :: All
-      complex(8), allocatable, dimension(:,:,:) :: S11,S12,S13
-      complex(8), allocatable, dimension(:,:,:) :: S21,S22,S23
-      complex(8), allocatable, dimension(:,:,:) :: S31,S32,S33
-      complex(8), allocatable, dimension(:,:,:) :: W12,W21
-      complex(8), allocatable, dimension(:,:,:) :: W13,W31
-      complex(8), allocatable, dimension(:,:,:) :: W23,W32
+      real(8), allocatable, dimension(:,:,:) :: All
+      real(8), allocatable, dimension(:,:,:) :: S11,S12,S13
+      real(8), allocatable, dimension(:,:,:) :: S21,S22,S23
+      real(8), allocatable, dimension(:,:,:) :: S31,S32,S33
+      real(8), allocatable, dimension(:,:,:) :: W12,W21
+      real(8), allocatable, dimension(:,:,:) :: W13,W31
+      real(8), allocatable, dimension(:,:,:) :: W23,W32
       !
       type(C_PTR) :: c_w1,c_w2,c_w3,c_rhocom,forward_plan,backward_plan
       type(C_PTR) :: c_w1f,c_w2f,c_w3f,c_rho
@@ -2521,23 +2521,23 @@ module udf_pp_SGS
         do j=1,jm
         do i=1,im
           !
-          All(i,j,k) = A11(i,j,k)+A22(i,j,k)+A33(i,j,k)
+          All(i,j,k) = dreal(A11(i,j,k)+A22(i,j,k)+A33(i,j,k))
           !
-          S11(i,j,k) = A11(i,j,k) - 1.d0/3.d0 * All(i,j,k)
-          S22(i,j,k) = A22(i,j,k) - 1.d0/3.d0 * All(i,j,k)
-          S33(i,j,k) = A33(i,j,k) - 1.d0/3.d0 * All(i,j,k)
-          S12(i,j,k) = (A12(i,j,k) + A21(i,j,k))*0.5d0
+          S11(i,j,k) = dreal(A11(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S22(i,j,k) = dreal(A22(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S33(i,j,k) = dreal(A33(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S12(i,j,k) = dreal(A12(i,j,k) + A21(i,j,k))*0.5d0
           S21(i,j,k) = S12(i,j,k)
-          S13(i,j,k) = (A13(i,j,k) + A31(i,j,k))*0.5d0
+          S13(i,j,k) = dreal(A13(i,j,k) + A31(i,j,k))*0.5d0
           S31(i,j,k) = S13(i,j,k)
-          S23(i,j,k) = (A23(i,j,k) + A32(i,j,k))*0.5d0
+          S23(i,j,k) = dreal(A23(i,j,k) + A32(i,j,k))*0.5d0
           S32(i,j,k) = S23(i,j,k)
           !
-          W12(i,j,k) = (A12(i,j,k)-A21(i,j,k))*0.5d0
+          W12(i,j,k) = dreal(A12(i,j,k)-A21(i,j,k))*0.5d0
           W21(i,j,k) = -1.d0*W12(i,j,k)
-          W13(i,j,k) = (A13(i,j,k)-A31(i,j,k))*0.5d0
+          W13(i,j,k) = dreal(A13(i,j,k)-A31(i,j,k))*0.5d0
           W31(i,j,k) = -1.d0*W13(i,j,k)
-          W23(i,j,k) = (A23(i,j,k)-A32(i,j,k))*0.5d0
+          W23(i,j,k) = dreal(A23(i,j,k)-A32(i,j,k))*0.5d0
           W32(i,j,k) = -1.d0*W23(i,j,k)
           !
         end do
@@ -2548,66 +2548,66 @@ module udf_pp_SGS
         do j=1,jm
         do i=1,im
           !
-          Pis1(m) = Pis1(m) + rhof(i,j,k) *(S11(i,j,k)*S11(i,j,k)*S11(i,j,k)+ &
-                                          S12(i,j,k)*S12(i,j,k)*S11(i,j,k)+ &
-                                          S13(i,j,k)*S13(i,j,k)*S11(i,j,k)+ &
-                                          S11(i,j,k)*S21(i,j,k)*S12(i,j,k)+ &
-                                          S12(i,j,k)*S22(i,j,k)*S12(i,j,k)+ &
-                                          S13(i,j,k)*S23(i,j,k)*S12(i,j,k)+ &
-                                          S11(i,j,k)*S31(i,j,k)*S13(i,j,k)+ &
-                                          S12(i,j,k)*S32(i,j,k)*S13(i,j,k)+ &
-                                          S13(i,j,k)*S33(i,j,k)*S13(i,j,k)+ &
-                                          S21(i,j,k)*S11(i,j,k)*S21(i,j,k)+ &
-                                          S22(i,j,k)*S12(i,j,k)*S21(i,j,k)+ &
-                                          S23(i,j,k)*S13(i,j,k)*S21(i,j,k)+ &
-                                          S21(i,j,k)*S21(i,j,k)*S22(i,j,k)+ &
-                                          S22(i,j,k)*S22(i,j,k)*S22(i,j,k)+ &
-                                          S23(i,j,k)*S23(i,j,k)*S22(i,j,k)+ &
-                                          S21(i,j,k)*S31(i,j,k)*S23(i,j,k)+ &
-                                          S22(i,j,k)*S32(i,j,k)*S23(i,j,k)+ &
-                                          S23(i,j,k)*S33(i,j,k)*S23(i,j,k)+ &
-                                          S31(i,j,k)*S11(i,j,k)*S31(i,j,k)+ &
-                                          S32(i,j,k)*S12(i,j,k)*S31(i,j,k)+ &
-                                          S33(i,j,k)*S13(i,j,k)*S31(i,j,k)+ &
-                                          S31(i,j,k)*S21(i,j,k)*S32(i,j,k)+ &
-                                          S32(i,j,k)*S22(i,j,k)*S32(i,j,k)+ &
-                                          S33(i,j,k)*S23(i,j,k)*S32(i,j,k)+ &
-                                          S31(i,j,k)*S31(i,j,k)*S33(i,j,k)+ &
-                                          S32(i,j,k)*S32(i,j,k)*S33(i,j,k)+ &
-                                          S33(i,j,k)*S33(i,j,k)*S33(i,j,k)) * &
-                                          l_lim(m) * l_lim(m)
-          Pis2(m) = Pis2(m) + rhof(i,j,k) *(W12(i,j,k)*W21(i,j,k)*S11(i,j,k)+ &
-                                            W13(i,j,k)*W31(i,j,k)*S11(i,j,k)+ &
-                                            W13(i,j,k)*W32(i,j,k)*S12(i,j,k)+ &
-                                            W12(i,j,k)*W23(i,j,k)*S13(i,j,k)+ &
-                                            W23(i,j,k)*W31(i,j,k)*S21(i,j,k)+ &
-                                            W21(i,j,k)*W12(i,j,k)*S22(i,j,k)+ &
-                                            W23(i,j,k)*W32(i,j,k)*S22(i,j,k)+ &
-                                            W21(i,j,k)*W13(i,j,k)*S23(i,j,k)+ &
-                                            W32(i,j,k)*W21(i,j,k)*S31(i,j,k)+ &
-                                            W31(i,j,k)*W12(i,j,k)*S32(i,j,k)+ &
-                                            W31(i,j,k)*W13(i,j,k)*S33(i,j,k)+ &
-                                            W32(i,j,k)*W23(i,j,k)*S33(i,j,k)) * &
-                                          l_lim(m) * l_lim(m)
-          Pim2(m) = Pim2(m) + rhof(i,j,k) *(S11(i,j,k)*S11(i,j,k)*All(i,j,k)+ &
-                                            S12(i,j,k)*S12(i,j,k)*All(i,j,k)+ &
-                                            S13(i,j,k)*S13(i,j,k)*All(i,j,k)+ &
-                                            S21(i,j,k)*S21(i,j,k)*All(i,j,k)+ &
-                                            S22(i,j,k)*S22(i,j,k)*All(i,j,k)+ &
-                                            S23(i,j,k)*S23(i,j,k)*All(i,j,k)+ &
-                                            S31(i,j,k)*S31(i,j,k)*All(i,j,k)+ &
-                                            S32(i,j,k)*S32(i,j,k)*All(i,j,k)+ &
-                                            S33(i,j,k)*S33(i,j,k)*All(i,j,k)) * &
-                                          l_lim(m) * l_lim(m)
-          Pim3(m) = Pim3(m) + rhof(i,j,k) *(W12(i,j,k)*W21(i,j,k)*All(i,j,k)+ &
-                                            W13(i,j,k)*W31(i,j,k)*All(i,j,k)+ &
-                                            W21(i,j,k)*W12(i,j,k)*All(i,j,k)+ &
-                                            W23(i,j,k)*W32(i,j,k)*All(i,j,k)+ &
-                                            W31(i,j,k)*W13(i,j,k)*All(i,j,k)+ &
-                                            W32(i,j,k)*W23(i,j,k)*All(i,j,k)) * &
-                                        l_lim(m) * l_lim(m)
-          Pid(m) = Pid(m) + rhof(i,j,k) * All(i,j,k) * All(i,j,k) * All(i,j,k) * &
-                                      l_lim(m) * l_lim(m)
+          Pis1(m) = Pis1(m) + dreal(rhof(i,j,k)) *(S11(i,j,k)*S11(i,j,k)*S11(i,j,k)+ &
+                                                  S12(i,j,k)*S12(i,j,k)*S11(i,j,k)+ &
+                                                  S13(i,j,k)*S13(i,j,k)*S11(i,j,k)+ &
+                                                  S11(i,j,k)*S21(i,j,k)*S12(i,j,k)+ &
+                                                  S12(i,j,k)*S22(i,j,k)*S12(i,j,k)+ &
+                                                  S13(i,j,k)*S23(i,j,k)*S12(i,j,k)+ &
+                                                  S11(i,j,k)*S31(i,j,k)*S13(i,j,k)+ &
+                                                  S12(i,j,k)*S32(i,j,k)*S13(i,j,k)+ &
+                                                  S13(i,j,k)*S33(i,j,k)*S13(i,j,k)+ &
+                                                  S21(i,j,k)*S11(i,j,k)*S21(i,j,k)+ &
+                                                  S22(i,j,k)*S12(i,j,k)*S21(i,j,k)+ &
+                                                  S23(i,j,k)*S13(i,j,k)*S21(i,j,k)+ &
+                                                  S21(i,j,k)*S21(i,j,k)*S22(i,j,k)+ &
+                                                  S22(i,j,k)*S22(i,j,k)*S22(i,j,k)+ &
+                                                  S23(i,j,k)*S23(i,j,k)*S22(i,j,k)+ &
+                                                  S21(i,j,k)*S31(i,j,k)*S23(i,j,k)+ &
+                                                  S22(i,j,k)*S32(i,j,k)*S23(i,j,k)+ &
+                                                  S23(i,j,k)*S33(i,j,k)*S23(i,j,k)+ &
+                                                  S31(i,j,k)*S11(i,j,k)*S31(i,j,k)+ &
+                                                  S32(i,j,k)*S12(i,j,k)*S31(i,j,k)+ &
+                                                  S33(i,j,k)*S13(i,j,k)*S31(i,j,k)+ &
+                                                  S31(i,j,k)*S21(i,j,k)*S32(i,j,k)+ &
+                                                  S32(i,j,k)*S22(i,j,k)*S32(i,j,k)+ &
+                                                  S33(i,j,k)*S23(i,j,k)*S32(i,j,k)+ &
+                                                  S31(i,j,k)*S31(i,j,k)*S33(i,j,k)+ &
+                                                  S32(i,j,k)*S32(i,j,k)*S33(i,j,k)+ &
+                                                  S33(i,j,k)*S33(i,j,k)*S33(i,j,k)) * &
+                                                  l_lim(m) * l_lim(m)
+          Pis2(m) = Pis2(m) + dreal(rhof(i,j,k)) *(W12(i,j,k)*W21(i,j,k)*S11(i,j,k)+ &
+                                                  W13(i,j,k)*W31(i,j,k)*S11(i,j,k)+ &
+                                                  W13(i,j,k)*W32(i,j,k)*S12(i,j,k)+ &
+                                                  W12(i,j,k)*W23(i,j,k)*S13(i,j,k)+ &
+                                                  W23(i,j,k)*W31(i,j,k)*S21(i,j,k)+ &
+                                                  W21(i,j,k)*W12(i,j,k)*S22(i,j,k)+ &
+                                                  W23(i,j,k)*W32(i,j,k)*S22(i,j,k)+ &
+                                                  W21(i,j,k)*W13(i,j,k)*S23(i,j,k)+ &
+                                                  W32(i,j,k)*W21(i,j,k)*S31(i,j,k)+ &
+                                                  W31(i,j,k)*W12(i,j,k)*S32(i,j,k)+ &
+                                                  W31(i,j,k)*W13(i,j,k)*S33(i,j,k)+ &
+                                                  W32(i,j,k)*W23(i,j,k)*S33(i,j,k)) * &
+                                                l_lim(m) * l_lim(m)
+          Pim2(m) = Pim2(m) + dreal(rhof(i,j,k)) *(S11(i,j,k)*S11(i,j,k)*All(i,j,k)+ &
+                                                  S12(i,j,k)*S12(i,j,k)*All(i,j,k)+ &
+                                                  S13(i,j,k)*S13(i,j,k)*All(i,j,k)+ &
+                                                  S21(i,j,k)*S21(i,j,k)*All(i,j,k)+ &
+                                                  S22(i,j,k)*S22(i,j,k)*All(i,j,k)+ &
+                                                  S23(i,j,k)*S23(i,j,k)*All(i,j,k)+ &
+                                                  S31(i,j,k)*S31(i,j,k)*All(i,j,k)+ &
+                                                  S32(i,j,k)*S32(i,j,k)*All(i,j,k)+ &
+                                                  S33(i,j,k)*S33(i,j,k)*All(i,j,k)) * &
+                                                l_lim(m) * l_lim(m)
+          Pim3(m) = Pim3(m) + dreal(rhof(i,j,k)) *(W12(i,j,k)*W21(i,j,k)*All(i,j,k)+ &
+                                                  W13(i,j,k)*W31(i,j,k)*All(i,j,k)+ &
+                                                  W21(i,j,k)*W12(i,j,k)*All(i,j,k)+ &
+                                                  W23(i,j,k)*W32(i,j,k)*All(i,j,k)+ &
+                                                  W31(i,j,k)*W13(i,j,k)*All(i,j,k)+ &
+                                                  W32(i,j,k)*W23(i,j,k)*All(i,j,k)) * &
+                                              l_lim(m) * l_lim(m)
+          Pid(m) = Pid(m) + dreal(rhof(i,j,k)) * All(i,j,k) * All(i,j,k) * All(i,j,k) * &
+                                              l_lim(m) * l_lim(m)
           !
         end do
         end do
@@ -2702,7 +2702,7 @@ module udf_pp_SGS
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A11_filted,A12_filted,A13_filted
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A21_filted,A22_filted,A23_filted
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A31_filted,A32_filted,A33_filted
-      complex(8), allocatable, dimension(:,:,:) :: All_filted
+      real(8) :: All_filted, SijSij_this, Smodulu
       complex(8), allocatable, dimension(:,:,:) :: S11_filted,S12_filted,S13_filted
       complex(8), allocatable, dimension(:,:,:) :: S21_filted,S22_filted,S23_filted
       complex(8), allocatable, dimension(:,:,:) :: S31_filted,S32_filted,S33_filted
@@ -2859,10 +2859,9 @@ module udf_pp_SGS
       call c_f_pointer(c_A33_filted, A33_filted,[imfftw,jmfftw,kmfftw])
       !
       !
-      allocate(All_filted(1:im,1:jm,1:km),&
-              S11_filted(1:im,1:jm,1:km),S12_filted(1:im,1:jm,1:km),S13_filted(1:im,1:jm,1:km),&
-              S21_filted(1:im,1:jm,1:km),S22_filted(1:im,1:jm,1:km),S23_filted(1:im,1:jm,1:km),&
-              S31_filted(1:im,1:jm,1:km),S32_filted(1:im,1:jm,1:km),S33_filted(1:im,1:jm,1:km))
+      allocate(S11_filted(1:im,1:jm,1:km),S12_filted(1:im,1:jm,1:km),S13_filted(1:im,1:jm,1:km),&
+                S21_filted(1:im,1:jm,1:km),S22_filted(1:im,1:jm,1:km),S23_filted(1:im,1:jm,1:km),&
+                S31_filted(1:im,1:jm,1:km),S32_filted(1:im,1:jm,1:km),S33_filted(1:im,1:jm,1:km))
       !
       allocate(AllAll(1:num_l),SijSij(1:num_l))
       !
@@ -2956,11 +2955,11 @@ module udf_pp_SGS
         do j=1,jm
         do i=1,im
           !
-          All_filted(i,j,k) = A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k)
+          All_filted = dreal(A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k))
           !
-          S11_filted(i,j,k) = A11_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
-          S22_filted(i,j,k) = A22_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
-          S33_filted(i,j,k) = A33_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
+          S11_filted(i,j,k) = A11_filted(i,j,k) - 1.d0/3.d0 * All_filted
+          S22_filted(i,j,k) = A22_filted(i,j,k) - 1.d0/3.d0 * All_filted
+          S33_filted(i,j,k) = A33_filted(i,j,k) - 1.d0/3.d0 * All_filted
           S12_filted(i,j,k) = (A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
           S21_filted(i,j,k) = S12_filted(i,j,k)
           S13_filted(i,j,k) = (A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
@@ -2968,16 +2967,13 @@ module udf_pp_SGS
           S23_filted(i,j,k) = (A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
           S32_filted(i,j,k) = S23_filted(i,j,k)
           !
-          AllAll(m) = AllAll(m) + dreal(All_filted(i,j,k))*dreal(All_filted(i,j,k))
-          SijSij(m) = SijSij(m) + dreal(S11_filted(i,j,k))* dreal(S11_filted(i,j,k)) + &
-                                  dreal(S12_filted(i,j,k))* dreal(S12_filted(i,j,k)) + &
-                                  dreal(S13_filted(i,j,k))* dreal(S13_filted(i,j,k)) + &
-                                  dreal(S21_filted(i,j,k))* dreal(S21_filted(i,j,k)) + &
-                                  dreal(S22_filted(i,j,k))* dreal(S22_filted(i,j,k)) + &
-                                  dreal(S23_filted(i,j,k))* dreal(S23_filted(i,j,k)) + &
-                                  dreal(S31_filted(i,j,k))* dreal(S31_filted(i,j,k)) + &
-                                  dreal(S32_filted(i,j,k))* dreal(S32_filted(i,j,k)) + &
-                                  dreal(S33_filted(i,j,k))* dreal(S33_filted(i,j,k))
+          SijSij_this = dreal(S11_filted(i,j,k))**2 + dreal(S12_filted(i,j,k))**2 + dreal(S13_filted(i,j,k))**2 + &
+                        dreal(S21_filted(i,j,k))**2 + dreal(S22_filted(i,j,k))**2 + dreal(S23_filted(i,j,k))**2 + &
+                        dreal(S31_filted(i,j,k))**2 + dreal(S32_filted(i,j,k))**2 + dreal(S33_filted(i,j,k))**2
+          Smodulu = dsqrt(2.d0*(SijSij_this+ 1.d0/3.d0 * All_filted**2))
+          !
+          AllAll(m) = AllAll(m) + dreal(rho_filted(i,j,k)) * All_filted * Smodulu
+          SijSij(m) = SijSij(m) + dreal(rho_filted(i,j,k)) * SijSij_this
           !
         end do
         end do
@@ -3029,7 +3025,7 @@ module udf_pp_SGS
       call fftw_free(c_A32_filted)
       call fftw_free(c_A33_filted)
       call mpistop
-      deallocate(All_filted,S11_filted,S12_filted,S13_filted,&
+      deallocate(S11_filted,S12_filted,S13_filted,&
                   S21_filted,S22_filted,S23_filted,&
                   S31_filted,S32_filted,S33_filted)
       deallocate(k1,k2,k3)
@@ -3054,7 +3050,7 @@ module udf_pp_SGS
       !
       integer,intent(in) :: thefilenumb
       integer :: fh
-      integer :: i,j,k,m,n
+      integer :: i,j,k,m,n,mmm
       character(len=128) :: infilename,outfilename,outfilename2
       character(len=4) :: stepname,mname
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1,w2,w3,rhocom
@@ -3065,17 +3061,19 @@ module udf_pp_SGS
       integer,allocatable,dimension(:) :: num_alphas
       integer :: num_l,num_alpha,num_alphamin
       integer :: hand_a,hand_b
+      integer :: output_ls(1:17) ! Temporary add
       real(8) :: l_min, ratio_max, ratio_min
       real(8) :: Gl,Galpha,Gphi
       real(8), allocatable, dimension(:) :: Pi1,Pi2,Pi3,Pi4,Pi5,Pi6,Pi7
+      real(8) :: Pi1int,Pi2int,Pi3int,Pi4int,Pi5int,Pi6int,Pi7int
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1_filted,w2_filted,w3_filted,rho_filted
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A11_filted,A12_filted,A13_filted
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A21_filted,A22_filted,A23_filted
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A31_filted,A32_filted,A33_filted
-      complex(8), allocatable, dimension(:,:,:) :: All_filted_l
-      complex(8), allocatable, dimension(:,:,:) :: S11_filted_l,S12_filted_l,S13_filted_l
-      complex(8), allocatable, dimension(:,:,:) :: S21_filted_l,S22_filted_l,S23_filted_l
-      complex(8), allocatable, dimension(:,:,:) :: S31_filted_l,S32_filted_l,S33_filted_l
+      real(8), allocatable, dimension(:,:,:) :: All_filted_l
+      real(8), allocatable, dimension(:,:,:) :: S11_filted_l,S12_filted_l,S13_filted_l
+      real(8), allocatable, dimension(:,:,:) :: S21_filted_l,S22_filted_l,S23_filted_l
+      real(8), allocatable, dimension(:,:,:) :: S31_filted_l,S32_filted_l,S33_filted_l
       complex(8), allocatable, dimension(:,:,:) :: All_filted
       complex(8), allocatable, dimension(:,:,:) :: S11_filted,S12_filted,S13_filted
       complex(8), allocatable, dimension(:,:,:) :: S21_filted,S22_filted,S23_filted
@@ -3201,7 +3199,6 @@ module udf_pp_SGS
       end do
       end do
       end do
-  
       !
       !
       !! wavenumber
@@ -3468,16 +3465,16 @@ module udf_pp_SGS
         do j=1,jm
         do i=1,im
           !
-          All_filted_l(i,j,k) = A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k)
+          All_filted_l(i,j,k) = dreal(A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k))
           !
-          S11_filted_l(i,j,k) = A11_filted(i,j,k) - 1.d0/3.d0 * All_filted_l(i,j,k)
-          S22_filted_l(i,j,k) = A22_filted(i,j,k) - 1.d0/3.d0 * All_filted_l(i,j,k)
-          S33_filted_l(i,j,k) = A33_filted(i,j,k) - 1.d0/3.d0 * All_filted_l(i,j,k)
-          S12_filted_l(i,j,k) = (A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
+          S11_filted_l(i,j,k) = dreal(A11_filted(i,j,k)) - 1.d0/3.d0 * All_filted_l(i,j,k)
+          S22_filted_l(i,j,k) = dreal(A22_filted(i,j,k)) - 1.d0/3.d0 * All_filted_l(i,j,k)
+          S33_filted_l(i,j,k) = dreal(A33_filted(i,j,k)) - 1.d0/3.d0 * All_filted_l(i,j,k)
+          S12_filted_l(i,j,k) = dreal(A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
           S21_filted_l(i,j,k) = S12_filted_l(i,j,k)
-          S13_filted_l(i,j,k) = (A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
+          S13_filted_l(i,j,k) = dreal(A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
           S31_filted_l(i,j,k) = S13_filted_l(i,j,k)
-          S23_filted_l(i,j,k) = (A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
+          S23_filted_l(i,j,k) = dreal(A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
           S32_filted_l(i,j,k) = S23_filted_l(i,j,k)
           !
         end do
@@ -3567,23 +3564,23 @@ module udf_pp_SGS
           do j=1,jm
           do i=1,im
             !
-            All_filted(i,j,k) = A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k)
+            All_filted(i,j,k) = dreal(A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k))
             !
-            S11_filted(i,j,k) = A11_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
-            S22_filted(i,j,k) = A22_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
-            S33_filted(i,j,k) = A33_filted(i,j,k) - 1.d0/3.d0 * All_filted(i,j,k)
-            S12_filted(i,j,k) = (A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
+            S11_filted(i,j,k) = dreal(A11_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S22_filted(i,j,k) = dreal(A22_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S33_filted(i,j,k) = dreal(A33_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S12_filted(i,j,k) = dreal(A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
             S21_filted(i,j,k) = S12_filted(i,j,k)
-            S13_filted(i,j,k) = (A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
+            S13_filted(i,j,k) = dreal(A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
             S31_filted(i,j,k) = S13_filted(i,j,k)
-            S23_filted(i,j,k) = (A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
+            S23_filted(i,j,k) = dreal(A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
             S32_filted(i,j,k) = S23_filted(i,j,k)
             !
-            W12_filted(i,j,k) = (A12_filted(i,j,k)-A21_filted(i,j,k))*0.5d0
+            W12_filted(i,j,k) = dreal(A12_filted(i,j,k)-A21_filted(i,j,k))*0.5d0
             W21_filted(i,j,k) = -1.d0*W12_filted(i,j,k)
-            W13_filted(i,j,k) = (A13_filted(i,j,k)-A31_filted(i,j,k))*0.5d0
+            W13_filted(i,j,k) = dreal(A13_filted(i,j,k)-A31_filted(i,j,k))*0.5d0
             W31_filted(i,j,k) = -1.d0*W13_filted(i,j,k)
-            W23_filted(i,j,k) = (A23_filted(i,j,k)-A32_filted(i,j,k))*0.5d0
+            W23_filted(i,j,k) = dreal(A23_filted(i,j,k)-A32_filted(i,j,k))*0.5d0
             W32_filted(i,j,k) = -1.d0*W23_filted(i,j,k)
             !
           end do
@@ -3595,6 +3592,7 @@ module udf_pp_SGS
           do k=1,km
           do j=1,jm
           do i=1,im
+            rho_filted(i,j,k) = dreal(rho_filted(i,j,k))
             !term1_IJ = rho_filted*SI1_filted*SJ1_filted + rho_filted*SI2_filted*SJ2_filted + rho_filted*SI3_filted*SJ3_filted
             term1_11(i,j,k) = rho_filted(i,j,k)*S11_filted(i,j,k)*S11_filted(i,j,k) + &
                               rho_filted(i,j,k)*S12_filted(i,j,k)*S12_filted(i,j,k) + &
@@ -3867,24 +3865,33 @@ module udf_pp_SGS
           call fftw_mpi_execute_dft(backward_plan,term7   ,term7   )
           !
           !
+          Pi1int = 0.d0
+          Pi2int = 0.d0
+          Pi3int = 0.d0
+          Pi4int = 0.d0
+          Pi5int = 0.d0
+          Pi6int = 0.d0
+          Pi7int = 0.d0
           do k=1,km
           do j=1,jm
           do i=1,im
-            vxr_D1 = real(term1_11(i,j,k) * S11_filted_l(i,j,k) + &
-                    term1_12(i,j,k) * S12_filted_l(i,j,k) + &
-                    term1_13(i,j,k) * S13_filted_l(i,j,k) + &
-                    term1_21(i,j,k) * S21_filted_l(i,j,k) + &
-                    term1_22(i,j,k) * S22_filted_l(i,j,k) + &
-                    term1_23(i,j,k) * S23_filted_l(i,j,k) + &
-                    term1_31(i,j,k) * S31_filted_l(i,j,k) + &
-                    term1_32(i,j,k) * S32_filted_l(i,j,k) + &
-                    term1_33(i,j,k) * S33_filted_l(i,j,k))
+            vxr_D1 = dreal(term1_11(i,j,k) * S11_filted_l(i,j,k) + &
+                          term1_12(i,j,k) * S12_filted_l(i,j,k) + &
+                          term1_13(i,j,k) * S13_filted_l(i,j,k) + &
+                          term1_21(i,j,k) * S21_filted_l(i,j,k) + &
+                          term1_22(i,j,k) * S22_filted_l(i,j,k) + &
+                          term1_23(i,j,k) * S23_filted_l(i,j,k) + &
+                          term1_31(i,j,k) * S31_filted_l(i,j,k) + &
+                          term1_32(i,j,k) * S32_filted_l(i,j,k) + &
+                          term1_33(i,j,k) * S33_filted_l(i,j,k))
             Pi1(m) = Pi1(m) + vxr_D1 * dl_alpha(m,n)
+            Pi1int = Pi1int + vxr_D1 * dl_alpha(m,n)
             !
-            vxr_D2 = real(term2(i,j,k) * All_filted_l(i,j,k))
+            vxr_D2 = dreal(term2(i,j,k)) * All_filted_l(i,j,k)
             Pi2(m) = Pi2(m) + vxr_D2 * dl_alpha(m,n) / 3.d0
+            Pi2int = Pi2int + vxr_D2 * dl_alpha(m,n) / 3.d0
             !
-            vxr_D3 = real(term3_11(i,j,k) * S11_filted_l(i,j,k) + &
+            vxr_D3 = dreal(term3_11(i,j,k) * S11_filted_l(i,j,k) + &
                     term3_12(i,j,k) * S12_filted_l(i,j,k) + &
                     term3_13(i,j,k) * S13_filted_l(i,j,k) + &
                     term3_21(i,j,k) * S21_filted_l(i,j,k) + &
@@ -3894,8 +3901,9 @@ module udf_pp_SGS
                     term3_32(i,j,k) * S32_filted_l(i,j,k) + &
                     term3_33(i,j,k) * S33_filted_l(i,j,k))
             Pi3(m) = Pi3(m) + vxr_D3 * dl_alpha(m,n) * 2.d0/3.d0
+            Pi3int = Pi3int + vxr_D3 * dl_alpha(m,n) * 2.d0/3.d0
             !
-            vxr_D4 = real(term4_11(i,j,k) * S11_filted_l(i,j,k) + &
+            vxr_D4 = dreal(term4_11(i,j,k) * S11_filted_l(i,j,k) + &
                     term4_12(i,j,k) * S12_filted_l(i,j,k) + &
                     term4_13(i,j,k) * S13_filted_l(i,j,k) + &
                     term4_21(i,j,k) * S21_filted_l(i,j,k) + &
@@ -3905,43 +3913,42 @@ module udf_pp_SGS
                     term4_32(i,j,k) * S32_filted_l(i,j,k) + &
                     term4_33(i,j,k) * S33_filted_l(i,j,k))
             Pi4(m) = Pi4(m) - vxr_D4 * dl_alpha(m,n)
+            Pi4int = Pi4int - vxr_D4 * dl_alpha(m,n)
             !
-            vxr_D5 = real(term5(i,j,k) * All_filted_l(i,j,k))
+            vxr_D5 = dreal(term5(i,j,k)) * All_filted_l(i,j,k)
             Pi5(m) = Pi5(m) - vxr_D5 * dl_alpha(m,n) / 3.d0
+            Pi5int = Pi5int - vxr_D5 * dl_alpha(m,n) / 3.d0
             !
-            vxr_D6 = real(term6_11(i,j,k) * S11_filted_l(i,j,k) + &
-                    term6_12(i,j,k) * S12_filted_l(i,j,k) + &
-                    term6_13(i,j,k) * S13_filted_l(i,j,k) + &
-                    term6_21(i,j,k) * S21_filted_l(i,j,k) + &
-                    term6_22(i,j,k) * S22_filted_l(i,j,k) + &
-                    term6_23(i,j,k) * S23_filted_l(i,j,k) + &
-                    term6_31(i,j,k) * S31_filted_l(i,j,k) + &
-                    term6_32(i,j,k) * S32_filted_l(i,j,k) + &
-                    term6_33(i,j,k) * S33_filted_l(i,j,k))
+            vxr_D6 = dreal(term6_11(i,j,k) * S11_filted_l(i,j,k) + &
+                          term6_12(i,j,k) * S12_filted_l(i,j,k) + &
+                          term6_13(i,j,k) * S13_filted_l(i,j,k) + &
+                          term6_21(i,j,k) * S21_filted_l(i,j,k) + &
+                          term6_22(i,j,k) * S22_filted_l(i,j,k) + &
+                          term6_23(i,j,k) * S23_filted_l(i,j,k) + &
+                          term6_31(i,j,k) * S31_filted_l(i,j,k) + &
+                          term6_32(i,j,k) * S32_filted_l(i,j,k) + &
+                          term6_33(i,j,k) * S33_filted_l(i,j,k))
             Pi6(m) = Pi6(m) + vxr_D6 * dl_alpha(m,n)
+            Pi6int = Pi6int + vxr_D6 * dl_alpha(m,n)
             !
-            vxr_D7 = term7(i,j,k) * All_filted_l(i,j,k)
+            vxr_D7 = dreal(term7(i,j,k)) * All_filted_l(i,j,k)
             Pi7(m) = Pi7(m) + vxr_D7 * dl_alpha(m,n) / 9.d0
+            Pi7int = Pi7int + vxr_D7 * dl_alpha(m,n) / 9.d0
           enddo
           enddo
           enddo
           !
-          vxr_D1 = psum(vxr_D1)
-          vxr_D2 = psum(vxr_D2)
-          vxr_D3 = psum(vxr_D3)
-          vxr_D4 = psum(vxr_D4)
-          vxr_D5 = psum(vxr_D5)
-          vxr_D6 = psum(vxr_D6)
-          vxr_D7 = psum(vxr_D7)
+          Pi1int = psum(Pi1int) / (ia*ja*ka)
+          Pi2int = psum(Pi2int) / (ia*ja*ka)
+          Pi3int = psum(Pi3int) / (ia*ja*ka)
+          Pi4int = psum(Pi4int) / (ia*ja*ka)
+          Pi5int = psum(Pi5int) / (ia*ja*ka)
+          Pi6int = psum(Pi6int) / (ia*ja*ka)
+          Pi7int = psum(Pi7int) / (ia*ja*ka)
           !
           if(mpirank==0) then
-            call listwrite(hand_b,l_sqrtalpha(m,n),vxr_D1 * dl_alpha(m,n), &
-                          vxr_D2 * dl_alpha(m,n) / 3.d0, &
-                          vxr_D3 * dl_alpha(m,n) * 2.d0/3.d0, &
-                          - vxr_D4 * dl_alpha(m,n), &
-                          - vxr_D5 * dl_alpha(m,n) / 3.d0, &
-                          vxr_D6 * dl_alpha(m,n), &
-                          vxr_D7 * dl_alpha(m,n) / 9.d0)
+            call listwrite(hand_b,l_sqrtalpha(m,n),Pi1int, Pi2int,Pi3int, &
+                          Pi4int, Pi5int,Pi6int, Pi7int)
           endif
           !
           call mpi_barrier(mpi_comm_world,ierr)
@@ -3956,7 +3963,20 @@ module udf_pp_SGS
         Pi6(m) =	 psum(Pi6(m)) / (ia*ja*ka)
         Pi7(m) =	 psum(Pi7(m)) / (ia*ja*ka)
         !
-        if(mpirank==0) print *, '>>>>', outfilename2
+        !
+        !
+        if(mpirank==0) then
+          call listwrite(hand_b,0.d0, 0.d0, 0.d0, &
+                      0.d0, 0.d0, 0.d0,&
+                      0.d0, 0.d0)
+          call listwrite(hand_b,Pi1(m)+Pi2(m)+Pi3(m)+Pi4(m)+Pi5(m)+Pi6(m)+Pi7(m), & 
+          Pi1(m), Pi2(m),Pi3(m), Pi4(m), Pi5(m),Pi6(m), Pi7(m))
+          !
+          close(unit=hand_b)
+          !
+          print *, '>>>>', outfilename2
+          !
+        endif
         !
         call mpi_barrier(mpi_comm_world,ierr)
         !
@@ -5950,12 +5970,14 @@ module udf_pp_SGS
       !
       if(present(num_alpha)) then
           do i=1,num_l
-              dl_alpha(i,1) = l_sqrtalpha(i,1)**2 
-              !
-              do j=2,num_alphas(i)
-                dl_alpha(i,j) = l_sqrtalpha(i,j)**2 -l_sqrtalpha(i,j-1)**2 
-              enddo
+            dl_alpha(i,1) = 0.5d0 * (l_sqrtalpha(i,2)**2)
+            !
+            do j=2,num_alphas(i)-1
+              dl_alpha(i,j) = 0.5d0 * (l_sqrtalpha(i,j+1)**2 -l_sqrtalpha(i,j-1)**2)
             enddo
+            !
+            dl_alpha(i,num_alphas(i)) = 0.5d0 * (l_sqrtalpha(i,num_alphas(i))**2 -l_sqrtalpha(i,num_alphas(i)-1)**2 )
+          enddo
       endif
     end subroutine SGSscale_allocate
     !

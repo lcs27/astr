@@ -348,7 +348,7 @@ module udf_pp_spectra
             ED(kOrdinal) = ED(kOrdinal) + roinf * udspe(i,j)*conjg(udspe(i,j))*kk/2
             Eweak(kOrdinal) = Eweak(kOrdinal) + roinf * u1spe(i,j)*conjg(u1spe(i,j))*kk/2 + &
                             roinf * u2spe(i,j)*conjg(u2spe(i,j))*kk/2
-            Pud(kOrdinal) = Pud(kOrdinal) - dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)*kk
+            Pud(kOrdinal) = Pud(kOrdinal) + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)*kk
             Erho(kOrdinal) = Erho(kOrdinal) + real(rou1spe(i,j)*conjg(u1spe(i,j))+ &
                               rou2spe(i,j)*conjg(u2spe(i,j)))*kk/2
             kn(kOrdinal) = kn(kOrdinal) + kk
@@ -357,7 +357,7 @@ module udf_pp_spectra
             ED(kOrdinal) = ED(kOrdinal) + roinf * udspe(i,j)*conjg(udspe(i,j))/2
             Eweak(kOrdinal) = Eweak(kOrdinal) + roinf * u1spe(i,j)*conjg(u1spe(i,j))/2 + &
                               roinf * u2spe(i,j)*conjg(u2spe(i,j))/2
-            Pud(kOrdinal) = Pud(kOrdinal) - dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)
+            Pud(kOrdinal) = Pud(kOrdinal) + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)
             Erho(kOrdinal) = Erho(kOrdinal) + real(rou1spe(i,j)*conjg(u1spe(i,j))+ &
                               rou2spe(i,j)*conjg(u2spe(i,j)))/2
           endif

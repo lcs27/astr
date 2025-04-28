@@ -656,11 +656,7 @@ module statistic
       enstophy=enstophycal()
       kenergy =kenergycal()
       !
-      if(trim(flowtype)=='hit2d') then
-        dissipation=diss_rate_cal2d()
-      else 
       dissipation=diss_rate_cal()
-      endif
       !
       if(trim(flowtype)=='hit'  .or. trim(flowtype)=='hit2d') then
         !
@@ -1089,8 +1085,7 @@ module statistic
         du11=dvel(i,j,k,1,1); du12=dvel(i,j,k,1,2)
         du21=dvel(i,j,k,2,1); du22=dvel(i,j,k,2,2)
         !
-        s11=du11; s12=0.5d0*(du12+du21)
-                  s22=du22
+        s11=du11; s12=0.5d0*(du12+du21);s22=du22
         !
         div=s11+s22
         !
@@ -1142,46 +1137,6 @@ module statistic
   !| The end of the subroutine diss_rate_cal.                          |
   !+-------------------------------------------------------------------+
   !
-  function diss_rate_cal2d() result(vout)
-    ! TODO: new adaptation
-    !
-    use commvar,  only : im,jm,km,ia,ja,ka,reynolds
-    use commarray,only : tmp,dvel
-    use fludyna,  only : miucal
-    !
-    real(8) :: vout
-    !
-    ! local data
-    integer :: i,j,k
-    real(8) :: var1,miu
-    real(8) :: du11,du12,du21,du22,s11,s12,s22,div
-    !
-    vout=0.d0
-    !
-    do j=1,jm
-    do i=1,im
-      ! 
-      miu=miucal(tmp(i,j,k))/reynolds
-      !
-      du11=dvel(i,j,k,1,1); du12=dvel(i,j,k,1,2); 
-      du21=dvel(i,j,k,2,1); du22=dvel(i,j,k,2,2);
-      !
-      s11=du11; s12=0.5d0*(du12+du21);s22=du22;
-      !
-      div=s11+s22
-      !
-      var1=2.d0*miu*(s11**2+s22**2+2.d0*s12**2-0.5d0*div**2)
-      !
-      vout=vout+var1
-      !
-    enddo
-    enddo
-    !
-    vout=psum(vout)/dble(ia*ja)
-    !
-    return
-    !
-  end function diss_rate_cal2d
   !
   !+-------------------------------------------------------------------+
   !| This function is to return rms spanwise velocity fluctuation.     |
