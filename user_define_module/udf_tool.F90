@@ -151,9 +151,9 @@ module udf_tool
             stop "Error! kint method 1 with no lambda or lambda is negative!"
         else
             if(k<(dk/2))then
-            kint = 0
+                kint = 0
             else
-            kint = floor(log(k/dk)/log(lambda))+1
+                kint = floor(log(k/dk)/log(lambda))+1
             endif
         endif
         else

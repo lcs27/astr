@@ -35,7 +35,7 @@ module pp
     use udf_pp_velgrad
     use udf_pp_spectra
     use udf_pp_hitgen
-    use udf_pp_force
+    ! use udf_pp_force
     use parallel,        only : mpirank,bcast,mpisize,lio
     use commarray,       only : allocommarray
     !
@@ -148,10 +148,10 @@ module pp
       !
       call ppVelgradentrance
       !
-    elseif(trim(cmd)=='forcetest') then
-      !
-      call ppForceentrance
-      !
+    ! elseif(trim(cmd)=='forcetest') then
+    !   !
+    !   call ppForceentrance
+    !   !
     else
       stop ' !! pp command not defined. @ ppentrance'
     endif

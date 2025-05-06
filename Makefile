@@ -44,8 +44,7 @@ srs=  strings.F90 fdnn.F90 singleton.F90 commtype.F90 stlaio.F90 constdef.F90 te
 	  bc.F90 readwrite.F90 geom.F90 ibmethod.F90\
 	  gridgeneration.F90 riemann.F90 solver.F90 \
 	  udf_pp.F90 udf_pp_spectra.F90 udf_pp_SGS.F90 udf_pp_velgrad.F90 udf_pp_hitgen.F90 \
-	  udf_pp_force.F90 \
-      pp.F90 initialisation.F90 \
+	  pp.F90 initialisation.F90 \
       mainloop.F90 test.F90 astr.F90
       
 OBJS=$(srs:.F90=.o)

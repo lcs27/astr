@@ -301,14 +301,23 @@ module udf_pp_spectra
     !
     do j=1,jm
     do i=1,im
-        kk=dsqrt(k1(i,j)**2+k2(i,j)**2+1.d-15)
-        usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
-        udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
-        !
-        u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
-        u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
-        u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
-        u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+        kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
+        if(kk>dk/2)then
+          usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
+          udspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
+          !
+          u1d(i,j)=  udspe(i,j)*k1(i,j)/kk
+          u2d(i,j)=  udspe(i,j)*k2(i,j)/kk
+          u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
+          u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+        else
+          usspe(i,j) = 0
+          udspe(i,j) = 0
+          u1d(i,j) = 0
+          u2d(i,j) = 0
+          u1s(i,j) = 0
+          u2s(i,j) = 0
+        endif
         !
         ReUsConjUd(i,j) = real(conjg(usspe(i,j))*udspe(i,j))
         !
@@ -339,7 +348,7 @@ module udf_pp_spectra
     !
     do j=1,jm
     do i=1,im
-        kk=dsqrt(k1(i,j)**2+k2(i,j)**2+1.d-15)
+        kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
         kOrdinal = kint(kk,dk,method,lambda)
         if (kOrdinal<=allkmax) then
           Ecount(kOrdinal) = Ecount(kOrdinal) + 1
@@ -748,18 +757,28 @@ module udf_pp_spectra
     do k=1,km
     do j=1,jm
     do i=1,im
-      kk=k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15
+      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)
+      if(kk>dk/2)then
       !
-      udspe(i,j,k) = k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)/kk * u2spe(i,j,k) + k3(i,j,k)/kk * u3spe(i,j,k)
-      u1d(i,j,k)=  k1(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k1(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
-                + k1(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
-      u2d(i,j,k)=  k2(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
-                + k2(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
-      u3d(i,j,k)=  k3(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k3(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
-                + k3(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
-      u1s(i,j,k)=  u1spe(i,j,k) - u1d(i,j,k)
-      u2s(i,j,k)=  u2spe(i,j,k) - u2d(i,j,k)
-      u3s(i,j,k)=  u3spe(i,j,k) - u3d(i,j,k)
+        udspe(i,j,k) = k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)/kk * u2spe(i,j,k) + k3(i,j,k)/kk * u3spe(i,j,k)
+        u1d(i,j,k)=  k1(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k1(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
+                  + k1(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
+        u2d(i,j,k)=  k2(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
+                  + k2(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
+        u3d(i,j,k)=  k3(i,j,k)*k1(i,j,k)/kk * u1spe(i,j,k) + k3(i,j,k)*k2(i,j,k)/kk * u2spe(i,j,k) &
+                  + k3(i,j,k)*k3(i,j,k)/kk * u3spe(i,j,k)
+        u1s(i,j,k)=  u1spe(i,j,k) - u1d(i,j,k)
+        u2s(i,j,k)=  u2spe(i,j,k) - u2d(i,j,k)
+        u3s(i,j,k)=  u3spe(i,j,k) - u3d(i,j,k)
+      else
+        udspe(i,j,k) = 0.d0
+        u1d(i,j,k)= 0.d0
+        u2d(i,j,k)= 0.d0
+        u3d(i,j,k)= 0.d0
+        u1s(i,j,k)= 0.d0
+        u2s(i,j,k)= 0.d0
+        u3s(i,j,k)= 0.d0
+      endif
       !
       ReUsConjUd(i,j,k) = real(conjg(u1s(i,j,k))*udspe(i,j,k)) + real(conjg(u2s(i,j,k))*udspe(i,j,k)) + &
                          real(conjg(u3s(i,j,k))*udspe(i,j,k))
@@ -791,7 +810,7 @@ module udf_pp_spectra
     do k=1,km
     do j=1,jm
     do i=1,im
-      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15)
+      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)
       kOrdinal = kint(kk,dk,method,lambda)
       if (kOrdinal<=allkmax) then
         Ecount(kOrdinal) = Ecount(kOrdinal) + 1
@@ -1134,7 +1153,7 @@ module udf_pp_spectra
     !
     do j=1,jm
     do i=1,im
-        k=dsqrt(k1(i,j)**2+k2(i,j)**2+1.d-15)
+        k=dsqrt(k1(i,j)**2+k2(i,j)**2)
         Espeall = Espeall + (u1spe(i,j)*dconjg(u1spe(i,j)))/2 + &
                             (u2spe(i,j)*dconjg(u2spe(i,j)))/2
         Dissip = Dissip + (u1spe(i,j)*dconjg(u1spe(i,j)))*(k**4) + &
@@ -1315,7 +1334,7 @@ module udf_pp_spectra
     do k=1,km
     do j=1,jm
     do i=1,im
-      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15)
+      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)
       !
       Espeall = Espeall + (u1spe(i,j,k)*dconjg(u1spe(i,j,k)))/2 + &
                             (u2spe(i,j,k)*dconjg(u2spe(i,j,k)))/2+&
@@ -1544,16 +1563,28 @@ module udf_pp_spectra
     do j=1,jm
       do i=1,im
         !
-        kk=dsqrt(k1(i,j)**2+k2(i,j)**2+1.d-15)
-        usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
-        ucspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
-        !
-        u1c(i,j)=  ucspe(i,j)*k1(i,j)/kk
-        u2c(i,j)=  ucspe(i,j)*k2(i,j)/kk
-        u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
-        u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
-        !
-        theta(i,j)= CMPLX(0.d0,1.d0,C_INTPTR_T) * (ucspe(i,j) * kk)
+        kk=dsqrt(k1(i,j)**2+k2(i,j)**2)
+        if(kk>dk/2)then
+          usspe(i,j) = u1spe(i,j)*k2(i,j)/kk - u2spe(i,j)*k1(i,j)/kk
+          ucspe(i,j) = u1spe(i,j)*k1(i,j)/kk + u2spe(i,j)*k2(i,j)/kk
+          !
+          u1c(i,j)=  ucspe(i,j)*k1(i,j)/kk
+          u2c(i,j)=  ucspe(i,j)*k2(i,j)/kk
+          u1s(i,j)=  usspe(i,j)*k2(i,j)/kk 
+          u2s(i,j)= -usspe(i,j)*k1(i,j)/kk
+          !
+          theta(i,j)= CMPLX(0.d0,1.d0,C_INTPTR_T) * (ucspe(i,j) * kk)
+        else
+          usspe(i,j) = 0.d0
+          ucspe(i,j) = 0.d0
+          !
+          u1c(i,j)=  0.d0
+          u2c(i,j)=  0.d0
+          u1s(i,j)=  0.d0
+          u2s(i,j)=  0.d0
+          !
+          theta(i,j)= 0.d0
+        endif
         !
       end do
     end do
@@ -1708,7 +1739,7 @@ module udf_pp_spectra
     do i = 1,im
       kx = k1(i,j)
       ky = k2(i,j)
-      kk=dsqrt(kx**2+ky**2+1.d-15)
+      kk=dsqrt(kx**2+ky**2)
       kOrdinal = kint(kk,dk,method,lambda)
       !
       if(kOrdinal==0)then
@@ -2104,20 +2135,32 @@ module udf_pp_spectra
     do j=1,jm
     do i=1,im
       !
-      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15)
+      kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)
       !
-      ucspe(i,j,k) = k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)/kk * u2spe(i,j,k) + k3(i,j,k)/kk * u3spe(i,j,k)
-      u1c(i,j,k)   =  k1(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k1(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k1(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
-      u2c(i,j,k)   =  k2(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k2(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k2(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
-      u3c(i,j,k)   =  k3(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k3(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k3(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
-      u1s(i,j,k)   =  u1spe(i,j,k) - u1c(i,j,k)
-      u2s(i,j,k)   =  u2spe(i,j,k) - u2c(i,j,k)
-      u3s(i,j,k)   =  u3spe(i,j,k) - u3c(i,j,k)
-      !
-      theta(i,j,k)= CMPLX(0.d0,1.d0,C_INTPTR_T) * (ucspe(i,j,k) * kk)
+      if(kk>dk/2)then
+        ucspe(i,j,k) = k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)/kk * u2spe(i,j,k) + k3(i,j,k)/kk * u3spe(i,j,k)
+        u1c(i,j,k)   =  k1(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k1(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
+                  + k1(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
+        u2c(i,j,k)   =  k2(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k2(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
+                  + k2(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
+        u3c(i,j,k)   =  k3(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k3(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
+                  + k3(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
+        u1s(i,j,k)   =  u1spe(i,j,k) - u1c(i,j,k)
+        u2s(i,j,k)   =  u2spe(i,j,k) - u2c(i,j,k)
+        u3s(i,j,k)   =  u3spe(i,j,k) - u3c(i,j,k)
+        !
+        theta(i,j,k)= CMPLX(0.d0,1.d0,C_INTPTR_T) * (ucspe(i,j,k) * kk)
+      else
+        ucspe(i,j,k) = 0.d0
+        u1c(i,j,k)   = 0.d0
+        u2c(i,j,k)   = 0.d0
+        u3c(i,j,k)   = 0.d0
+        u1s(i,j,k)   = 0.d0
+        u2s(i,j,k)   = 0.d0
+        u3s(i,j,k)   = 0.d0
+        !
+        theta(i,j,k) = 0.d0
+      endif
       !
     end do
     end do
@@ -2371,7 +2414,7 @@ module udf_pp_spectra
       kx = k1(i,j,k)
       ky = k2(i,j,k)
       kz = k3(i,j,k)
-      kk=dsqrt(kx**2+ky**2+kz**2+1.d-15)
+      kk=dsqrt(kx**2+ky**2+kz**2)
       kOrdinal = kint(kk,dk,method,lambda)
       !
       TsO         = ProjectP3(1,1,1,kx,ky,kz) * dimag(u1s(i,j,k)*conjg(T11(i,j,k))) + &

@@ -8,7 +8,6 @@ program astr
   !
   use parallel
   use readwrite
-  use commvar, only: lforce
   use commarray
   use solver
   use initialisation
@@ -20,7 +19,6 @@ program astr
   use ibmethod
   use test
   use comsolver
-  use fftwlink, only: fftwprepare_forcing
   !
   implicit none
   !
@@ -72,7 +70,6 @@ program astr
     !
     call flowinit
     !
-    if(lforce) call fftwprepare_forcing
     !
     call codetest
     !
