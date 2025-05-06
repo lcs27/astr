@@ -41,13 +41,10 @@ module udf_pp_hitgen
         print *, ' ** 3D mode'
         call readkeyboad(method)
         read(method,'(i1)')velmethod
-        call readkeyboad(method)
-        read(method,'(i1)')thermomethod
       endif
       call bcast(velmethod)
-      call bcast(thermomethod)
       !
-      call hitvelgen3d(velmethod,thermomethod)
+      call hitvelgen3d(velmethod)
       !
     elseif(trim(readmode)=='2D') then
       !
@@ -55,13 +52,10 @@ module udf_pp_hitgen
         print *, ' ** 2D mode'
         call readkeyboad(method)
         read(method,'(i1)')velmethod
-        call readkeyboad(method)
-        read(method,'(i1)')thermomethod
       endif
       call bcast(velmethod)
-      call bcast(thermomethod)
       !
-      call hitvelgen2d(velmethod,thermomethod)
+      call hitvelgen2d(velmethod)
     elseif(trim(readmode)=='p2D') then
       !
       if(mpirank == 0)then
@@ -89,7 +83,7 @@ module udf_pp_hitgen
   !
   !
   !
-  subroutine hitvelgen3d(velmethod,thermomethod)
+  subroutine hitvelgen3d(velmethod)
     !
     use, intrinsic :: iso_c_binding
     use readwrite, only : readgrid, readic, readinput
@@ -107,7 +101,7 @@ module udf_pp_hitgen
     use tecio
     include 'fftw3-mpi.f03'
     !
-    integer, intent(in) :: velmethod,thermomethod
+    integer, intent(in) :: velmethod
     integer :: i,j,k,n,clock,irandom,total_m,proc_m,m
     real(8), allocatable, dimension(:,:,:) :: k1,k2,k3
     integer,allocatable :: seed(:)
@@ -140,7 +134,7 @@ module udf_pp_hitgen
     call parallelini
     if(mpirank==0)  print*, ' ** parallelini done!'
     !
-    if(mpirank==0)  print*, ' ** velmethod = ', velmethod, 'thermomethod = ', thermomethod
+    if(mpirank==0)  print*, ' ** velmethod = ', velmethod
     !
     allocate( vel(-hm:2*im+hm,-hm:jm+hm,-hm:km+hm,1:3) )
     allocate(rho(0:(2*im),0:jm,0:km),tmp(0:(2*im),0:jm,0:km),prs(0:(2*im),0:jm,0:km))
@@ -323,14 +317,7 @@ module udf_pp_hitgen
     if(mpirank == 0) print *, " ** Periodic boundary condition and parallel information transfer"
     !
     rho(0:im,0:jm,0:km)  = roinf
-    select case (thermomethod)
-      case(1)
-        if(mpirank == 0) print *, " ** Incompressible Poisson solver pressure"
-        call incompressuresolve3d
-      case default
-        if(mpirank == 0) print *, " ** Uniform pressure"
-        prs(0:im,0:jm,0:km)  = pinf
-    end select
+    prs(0:im,0:jm,0:km)  = pinf
     !
     do k=0,km
     do j=0,jm
@@ -346,7 +333,7 @@ module udf_pp_hitgen
     enddo
     enddo
     !
-    if(mpirank == 0) print *, " ** Density and temperature allocation"
+    if(mpirank == 0) print *, " ** Uniform pressure, density and temperature allocation"
     !
     call h5io_init(trim('datin/flowini3d.h5'),mode='write')
     call h5write(var=rho(0:im,0:jm,0:km),  varname='ro', mode = modeio) 
@@ -376,7 +363,7 @@ module udf_pp_hitgen
   !+-------------------------------------------------------------------+
   !
   !
-  subroutine hitvelgen2d(velmethod,thermomethod)
+  subroutine hitvelgen2d(velmethod)
     !
     use, intrinsic :: iso_c_binding
     use readwrite, only : readgrid, readic, readinput
@@ -395,7 +382,7 @@ module udf_pp_hitgen
     use solver,    only : refcal
     include 'fftw3-mpi.f03'
     !
-    integer, intent(in) :: velmethod,thermomethod
+    integer, intent(in) :: velmethod
     integer :: i,j,n,clock,irandom,total_m,proc_m,m
     real(8), allocatable, dimension(:,:) :: k1,k2
     integer,allocatable :: seed(:)
@@ -423,7 +410,7 @@ module udf_pp_hitgen
     call parallelini
     if(mpirank==0)  print*, ' ** parallelini done!'
     !
-    if(mpirank==0)  print*, ' ** velmethod = ', velmethod, 'thermomethod = ', thermomethod
+    if(mpirank==0)  print*, ' ** velmethod = ', velmethod
     !
     !
     allocate( vel(-hm:2*im+hm,-hm:jm+hm,-hm:hm,1:3) )
@@ -567,14 +554,9 @@ module udf_pp_hitgen
     !
     vel(0:im,0:jm,0,3)= 0.d0
     rho(0:im,0:jm,0)  = roinf
-    select case (thermomethod)
-    case(1)
-      if(mpirank == 0) print *, " ** Incompressible Poisson solver pressure"
-      call incompressuresolve2d
-    case default
-      if(mpirank == 0) print *, " ** Uniform pressure"
-      prs(0:im,0:jm,0:km)  = pinf
-    end select
+    if(mpirank == 0) print *, " ** Uniform pressure"
+    prs(0:im,0:jm,0:km)  = pinf
+    !
     do j=0,jm
     do i=0,im
       !
@@ -643,7 +625,10 @@ module udf_pp_hitgen
     call refcal
     if(mpirank==0)  print*, ' ** refcal done!'
     !
-    if(mpirank==0)  print*, '==== Examination begins:'
+    ! call fftw_mpi_init()
+    ! if(mpirank==0)  print *, " ** fftw_mpi initialized"
+    ! call mpisizedis_half_fftw
+    ! if(mpirank==0)  print*, ' ** mpisizedis & parapp done!'
     !
     call mpisizedis
     if(mpirank==0)  print*, '** mpisizedis & parapp done!'
@@ -653,6 +638,8 @@ module udf_pp_hitgen
     !
     call parallelini
     if(mpirank==0)  print*, '** parallelini done!'
+    !
+    if(mpirank==0)  print*, ' Read initial velocity field and modify pressure to thermomethod = ', thermomethod
     !
     allocate(vel(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3), rho(0:im,0:jm,0:km))
     allocate(prs(0:im,0:jm,0:km), tmp(0:im,0:jm,0:km))
@@ -1152,12 +1139,9 @@ module udf_pp_hitgen
     use fludyna,   only : thermal,miucal
     use solver,    only : refcal
     !
-    integer :: i,j,k,l,m
-    real(8) :: dx, pav, prsmin, equmax, miu, div, oldequ
+    integer :: i,j,k,l,m, itnum
+    real(8) :: dx, pav, prsmin, residual
     real(8), allocatable, dimension(:,:,:) :: P
-    real(8), allocatable, dimension(:,:,:,:,:) :: sigma
-    real(8), allocatable, dimension(:,:,:,:) :: dsigma11, dsigma22, dsigma33, dsigma12, dsigma13, dsigma23
-    real(8), allocatable, dimension(:,:,:,:) :: ddsigma11dx1, ddsigma12dx1,ddsigma13dx1,ddsigma22dx2,ddsigma23dx2,ddsigma33dx3
     !
     allocate(x(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3) )
     deallocate(prs)
@@ -1172,7 +1156,7 @@ module udf_pp_hitgen
     if(ia == ja .and. ja==ka)then
       dx = 2.d0 * pi/ real(ia)
     else
-      stop "error!"
+      stop "error! ia != ja != ka"
     endif
     !
     call solvrinit
@@ -1182,79 +1166,26 @@ module udf_pp_hitgen
     dvel(:,:,:,3,:)=grad(vel(:,:,:,3))
     if(mpirank==0) print *, " **** dvel calculation"
     !
-    allocate(sigma(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3,1:3))
-    allocate(dsigma11(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-              dsigma22(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-              dsigma33(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-              dsigma12(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-              dsigma13(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-              dsigma23(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3))
-    allocate(ddsigma11dx1(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-            ddsigma12dx1(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-            ddsigma13dx1(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-            ddsigma22dx2(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-            ddsigma23dx2(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),&
-            ddsigma33dx3(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3))
     !
     prs = pinf
-    oldequ = 1000000000.d0
-    equmax = 100000000.d0
     !
+    !
+    do k=0,km
+    do j=0,jm
+    do i=0,im
+      P(i,j,k) = roinf * (dvel(i,j,0,1,1) ** 2 + dvel(i,j,0,2,2) ** 2 + dvel(i,j,0,3,3) ** 2 &
+                        + 2 * dvel(i,j,0,1,2) * dvel(i,j,0,2,1) + 2 * dvel(i,j,0,1,3) * dvel(i,j,0,3,1) &
+                        + 2 * dvel(i,j,0,2,3) * dvel(i,j,0,3,2))
+    enddo
+    enddo
+    enddo
     ! Using iteration
-    do while(equmax>10.d0 .and. (oldequ-equmax)/equmax>0.001d0)
+    itnum = 0
+    residual = 10000.d0
+    !
+    do while(residual>1.d0 .and. itnum < 10000)
       !
-      oldequ = equmax
-      !
-      do k=0,km
-      do j=0,jm
-      do i=0,im
-        P(i,j,k) = roinf * (dvel(i,j,0,1,1) ** 2 + dvel(i,j,0,2,2) ** 2 + dvel(i,j,0,3,3) ** 2 &
-                          + 2 * dvel(i,j,0,1,2) * dvel(i,j,0,2,1) + 2 * dvel(i,j,0,1,3) * dvel(i,j,0,3,1) &
-                          + 2 * dvel(i,j,0,2,3) * dvel(i,j,0,3,2))
-        miu = miucal(thermal(density=rho(i,j,0),pressure=prs(i,j,0)))/Reynolds
-        div = dvel(i,j,0,1,1) + dvel(i,j,0,2,2) + dvel(i,j,0,3,3)
-        sigma(i,j,0,1,1) = 2 * miu * dvel(i,j,0,1,1) - 2.d0/3.d0 * miu * div
-        sigma(i,j,0,2,2) = 2 * miu * dvel(i,j,0,2,2) - 2.d0/3.d0 * miu * div
-        sigma(i,j,0,3,3) = 2 * miu * dvel(i,j,0,3,3) - 2.d0/3.d0 * miu * div
-        sigma(i,j,0,1,2) = miu * (dvel(i,j,0,1,2) + dvel(i,j,0,2,1))
-        sigma(i,j,0,1,3) = miu * (dvel(i,j,0,1,3) + dvel(i,j,0,3,1))
-        sigma(i,j,0,2,3) = miu * (dvel(i,j,0,2,3) + dvel(i,j,0,3,2))
-      enddo
-      enddo
-      enddo
-      !
-      call dataswap(sigma)
-      !
-      dsigma11(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,1,1))
-      dsigma22(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,2,2))
-      dsigma33(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,3,3))
-      dsigma12(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,1,2))
-      dsigma13(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,1,3))
-      dsigma23(0:im,0:jm,0:km,:) = grad(sigma(:,:,:,2,3))
-      !
-      call dataswap(dsigma11)
-      call dataswap(dsigma22)
-      call dataswap(dsigma33)
-      call dataswap(dsigma12)
-      call dataswap(dsigma13)
-      call dataswap(dsigma23)
-      !
-      ddsigma11dx1(0:im,0:jm,0:km,:) = grad(dsigma11(:,:,0,1))
-      ddsigma22dx2(0:im,0:jm,0:km,:) = grad(dsigma22(:,:,0,2))
-      ddsigma33dx3(0:im,0:jm,0:km,:) = grad(dsigma33(:,:,0,3))
-      ddsigma12dx1(0:im,0:jm,0:km,:) = grad(dsigma12(:,:,0,1))
-      ddsigma13dx1(0:im,0:jm,0:km,:) = grad(dsigma13(:,:,0,1))
-      ddsigma23dx2(0:im,0:jm,0:km,:) = grad(dsigma23(:,:,0,2))
-      !
-      do i=0,im
-      do j=0,jm
-      do k=0,km
-        P(i,j,k) = P(i,j,k) - ddsigma11dx1(i,j,0,1) - ddsigma22dx2(i,j,0,2)  - ddsigma33dx3(i,j,0,3) &
-                - 2* ddsigma12dx1(i,j,0,2)  - 2* ddsigma13dx1(i,j,0,3)  - 2* ddsigma23dx2(i,j,0,3) 
-      enddo
-      enddo
-      enddo
-      P = - P * const2 
+      itnum = itnum + 1
       !
       do k=0,km
       do j=0,jm
@@ -1289,16 +1220,20 @@ module udf_pp_hitgen
       pav = psum(pav) / real(ia*ja*ka)
       prsmin = pmin(prsmin)
       !
-      if(prsmin - pav + pinf>0.d0)then
-        prs(:,:,:) = prs(:,:,:) - pav + pinf
+      prs = prs - pav + pinf
+      !
+      if(prsmin < 0.d0 .and. mpirank == 0)then
+        print *, "Error! pmin<0!", prsmin
+        print *, "Modify to lower mach number!"
+        stop
       endif
       !
-      equmax = 0.d0
+      residual = 0.d0
       do k=0,km
       do j=0,jm
       do i=0,im
-        equmax = max(abs(- P(i,j,k)+ &
-                    + (1.d0/90.d0*prs(i-3,j,k) - 3.d0/20.d0*prs(i-2,j,k) &
+        residual = residual + abs(P(i,j,k)+ &
+                    - (1.d0/90.d0*prs(i-3,j,k) - 3.d0/20.d0*prs(i-2,j,k) &
                     + 3.d0/2.d0 *prs(i-1,j,k)  + 3.d0/2.d0 *prs(i+1,j,k) &
                     - 3.d0/20.d0*prs(i+2,j,k)  + 1.d0/90.d0*prs(i+3,j,k) &
                     + 1.d0/90.d0*prs(i,j-3,k)  - 3.d0/20.d0*prs(i,j-2,k) &
@@ -1307,30 +1242,24 @@ module udf_pp_hitgen
                     + 1.d0/90.d0*prs(i,j,k-3)  - 3.d0/20.d0*prs(i,j,k-2) &
                     + 3.d0/2.d0 *prs(i,j,k-1)  + 3.d0/2.d0 *prs(i,j,k+1) &
                     - 3.d0/20.d0*prs(i,j,k+2)  + 1.d0/90.d0*prs(i,j,k+3) &
-                    - 49.d0/6.d0*prs(i,j,k))/dx/dx),equmax)
+                    - 49.d0/6.d0*prs(i,j,k))/dx/dx)
         
       enddo
       enddo
       enddo
       !
+      residual = psum(residual)/dble(ia*ja)
       !
-      equmax = pmax(equmax)
+      if(mod(itnum,1000)==0) then
+        if(mpirank==0) print *, ' **** Iteration ', itnum ,'residual = ', residual, 'pav=', pav
+      endif
       !
     enddo
     !
-    if(mpirank==0) print *, ' **** Iteration end! equmax = ', equmax, 'oldequ=', oldequ
-    !
-    !
-    prsmin = pmin(prsmin)
-    if(prsmin< 0.d0)then
-      print *, "Error! pmin<0!", prsmin
-    endif
+    if(mpirank==0) print *, ' **** Iteration end ! Num = ', itnum ,'residual = ', residual, 'pav=', pav
     !
     deallocate(x)
     deallocate(dvel)
-    deallocate(sigma)
-    deallocate(dsigma11,dsigma22,dsigma33,dsigma12,dsigma13,dsigma23)
-    deallocate(ddsigma11dx1,ddsigma22dx2,ddsigma33dx3,ddsigma12dx1,ddsigma13dx1,ddsigma23dx2)
   end subroutine incompressuresolve3d
   !
   !
@@ -1345,11 +1274,9 @@ module udf_pp_hitgen
     use fludyna,   only : thermal,miucal
     use solver,    only : refcal
     !
-    integer :: i,j,k,l,m
-    real(8) :: dx, pav, prsmin, equmax, miu, div, oldequ
+    integer :: i,j,k,l,m, itnum
+    real(8) :: dx, pav, prsmin, residual
     real(8), allocatable, dimension(:,:) :: P
-    real(8), allocatable, dimension(:,:,:,:,:) :: sigma
-    real(8), allocatable, dimension(:,:,:,:) :: dsigma11, dsigma12, dsigma22, ddsigma11dx1, ddsigma12dx1, ddsigma22dx2
     !
     allocate(x(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3) )
     deallocate(prs)
@@ -1359,13 +1286,12 @@ module udf_pp_hitgen
     call geomcal
     call dataswap(vel)
     allocate(dvel(0:im,0:jm,0:km,1:2,1:3))
-    !
     allocate(P(0:im,0:jm))
     !
     if(ia == ja)then
       dx = 2.d0 * pi/ real(ia)
     else
-      stop "error!"
+      stop "error! ia != ja"
     endif
     !
     call solvrinit
@@ -1374,64 +1300,35 @@ module udf_pp_hitgen
     dvel(:,:,:,2,:)=grad(vel(:,:,:,2))
     if(mpirank==0) print *, " **** dvel calculation"
     !
-    allocate(sigma(-hm:im+hm,-hm:jm+hm,-hm:hm,1:2,1:2))
-    allocate(dsigma11(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3),dsigma12(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3),&
-            dsigma22(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3),ddsigma11dx1(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3),&
-            ddsigma12dx1(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3),ddsigma22dx2(-hm:im+hm,-hm:jm+hm,-hm:hm,1:3))
     !
     prs = pinf
-    oldequ = 1000000000.d0
-    equmax = 100000000.d0
     !
-    ! Using iteration
-    do while(equmax>10.d0 .and. (oldequ-equmax)/equmax>0.001d0)
+    ! 
+    !
+    do i=0,im
+    do j=0,jm
+      P(i,j) = - roinf * (dvel(i,j,0,1,1) ** 2 + dvel(i,j,0,2,2) ** 2 + 2 * dvel(i,j,0,1,2) * dvel(i,j,0,2,1))
+    enddo
+    enddo
+    !
+    !
+    itnum = 0
+    residual = 10000.d0
+    !
+    do while(residual>1.d0 .and. itnum < 10000)
       !
-      oldequ = equmax
-      !
-      do i=0,im
-      do j=0,jm
-        P(i,j) = roinf * (dvel(i,j,0,1,1) ** 2 + dvel(i,j,0,2,2) ** 2 + 2 * dvel(i,j,0,1,2) * dvel(i,j,0,2,1))
-        miu = miucal(thermal(density=rho(i,j,0),pressure=prs(i,j,0)))/Reynolds
-        div = dvel(i,j,0,1,1) + dvel(i,j,0,2,2)
-        sigma(i,j,0,1,1) = 2 * miu * dvel(i,j,0,1,1) - 2.d0/3.d0 * miu * div
-        sigma(i,j,0,1,2) = miu * (dvel(i,j,0,1,2) + dvel(i,j,0,2,1))
-        sigma(i,j,0,2,2) = 2 * miu * dvel(i,j,0,2,2) - 2.d0/3.d0 * miu * div
-      enddo
-      enddo
-      !
-      call dataswap(sigma)
-      !
-      dsigma11(0:im,0:jm,0:0,:) = grad(sigma(:,:,:,1,1))
-      dsigma12(0:im,0:jm,0:0,:) = grad(sigma(:,:,:,1,2))
-      dsigma22(0:im,0:jm,0:0,:) = grad(sigma(:,:,:,2,2))
-      !
-      call dataswap(dsigma11)
-      call dataswap(dsigma12)
-      call dataswap(dsigma22)
-      !
-      ddsigma11dx1(0:im,0:jm,0:0,:) = grad(dsigma11(:,:,0,1))
-      ddsigma12dx1(0:im,0:jm,0:0,:) = grad(dsigma12(:,:,0,1))
-      ddsigma22dx2(0:im,0:jm,0:0,:) = grad(dsigma22(:,:,0,2))
-      !
-      !
-      do i=0,im
-      do j=0,jm
-        P(i,j) = P(i,j) - ddsigma11dx1(i,j,0,1)  - 2* ddsigma12dx1(i,j,0,2)  - ddsigma22dx2(i,j,0,2)
-      enddo
-      enddo
-      P = - P * const2 
-      !
+      itnum = itnum + 1
       !
       do j=0,jm
       do i=0,im
         prs(i,j,0) =  ( - P(i,j) * (dx**2) &
-                        + 1.d0/90.d0*prs(i-3,j,0) - 3.d0/20.d0*prs(i-2,j,0) &
-                        + 3.d0/2.d0 *prs(i-1,j,0) + 3.d0/2.d0 *prs(i+1,j,0) &
-                        - 3.d0/20.d0*prs(i+2,j,0) + 1.d0/90.d0*prs(i+3,j,0) &
-                        + 1.d0/90.d0*prs(i,j-3,0) - 3.d0/20.d0*prs(i,j-2,0) &
-                        + 3.d0/2.d0 *prs(i,j-1,0) + 3.d0/2.d0 *prs(i,j+1,0) &
-                        - 3.d0/20.d0*prs(i,j+2,0) + 1.d0/90.d0*prs(i,j+3,0))&
-                        /(49.d0/9.d0)
+                      + 1.d0/90.d0*prs(i-3,j,0) - 3.d0/20.d0*prs(i-2,j,0) &
+                      + 3.d0/2.d0 *prs(i-1,j,0) + 3.d0/2.d0 *prs(i+1,j,0) &
+                      - 3.d0/20.d0*prs(i+2,j,0) + 1.d0/90.d0*prs(i+3,j,0) &
+                      + 1.d0/90.d0*prs(i,j-3,0) - 3.d0/20.d0*prs(i,j-2,0) &
+                      + 3.d0/2.d0 *prs(i,j-1,0) + 3.d0/2.d0 *prs(i,j+1,0) &
+                      - 3.d0/20.d0*prs(i,j+2,0) + 1.d0/90.d0*prs(i,j+3,0))&
+                      /(49.d0/9.d0)
       enddo
       enddo
       !
@@ -1448,43 +1345,45 @@ module udf_pp_hitgen
       pav = psum(pav) / real(ia*ja)
       prsmin = pmin(prsmin)
       !
-      if(prsmin - pav + pinf>0.d0)then
-        prs(:,:,:) = prs(:,:,:) - pav + pinf
+      prs = prs - pav + pinf
+      !
+      if(prsmin < 0.d0 .and. mpirank == 0)then
+        print *, "Error! pmin<0!", prsmin
+        print *, "Modify to lower mach number!"
+        stop
       endif
       !
-      equmax = 0.d0
+      residual = 0.d0
       do j=0,jm
       do i=0,im
-        equmax = max(abs(- P(i,j)+ &
-                    + (1.d0/90.d0*prs(i-3,j,0) - 3.d0/20.d0*prs(i-2,j,0) &
+        residual = residual + abs(P(i,j)+ &
+                    - (1.d0/90.d0*prs(i-3,j,0) - 3.d0/20.d0*prs(i-2,j,0) &
                     + 3.d0/2.d0 *prs(i-1,j,0)  + 3.d0/2.d0 *prs(i+1,j,0) &
                     - 3.d0/20.d0*prs(i+2,j,0)  + 1.d0/90.d0*prs(i+3,j,0) &
                     + 1.d0/90.d0*prs(i,j-3,0)  - 3.d0/20.d0*prs(i,j-2,0) &
                     + 3.d0/2.d0 *prs(i,j-1,0)  + 3.d0/2.d0 *prs(i,j+1,0) &
                     - 3.d0/20.d0*prs(i,j+2,0)  + 1.d0/90.d0*prs(i,j+3,0) &
-                    - 49.d0/9.d0*prs(i,j,0))/dx/dx),equmax)
+                    - 49.d0/9.d0*prs(i,j,0))/dx/dx)
         
       enddo
       enddo
       !
       !
-      equmax = pmax(equmax)
+      residual = psum(residual)/dble(ia*ja)
+      !
+      if(mod(itnum,1000)==0) then
+        if(mpirank==0) print *, ' **** Iteration ', itnum ,'residual = ', residual, 'pav=', pav
+      endif
       !
     enddo
     !
     !
-    if(mpirank==0) print *, ' **** Iteration end! equmax = ', equmax, 'oldequ=', oldequ
+    if(mpirank==0) print *, ' **** Iteration end ! Num = ', itnum ,'residual = ', residual, 'pav=', pav
     !
     !
-    prsmin = pmin(prsmin)
-    if(prsmin< 0.d0)then
-      print *, "Error! pmin<0!", prsmin
-    endif
     !
     deallocate(x)
     deallocate(dvel)
-    deallocate(sigma,dsigma11,dsigma12,dsigma22)
-    deallocate(ddsigma11dx1,ddsigma12dx1,ddsigma22dx2)
   end subroutine incompressuresolve2d
   !
   end module udf_pp_hitgen
