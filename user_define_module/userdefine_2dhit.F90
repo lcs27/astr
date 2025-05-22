@@ -235,7 +235,7 @@ module userdefine
         call listinit(filename='log/stat2d_specall.dat',handle=hand_f, &
                       firstline='ns ti Es Ed Pud k2Es k2Ed ')
         call listinit(filename='log/stat2d_spect.dat',handle=hand_g, &
-                      firstline='ns ti k Es Ed Pud')
+                      firstline='ns ti k Es Ed Pud Ep')
       endif
       !
       linit=.false.
@@ -629,7 +629,7 @@ module userdefine
     real(8), allocatable, dimension(:,:) :: k1,k2
     complex(8) :: usspe,udspe,u1s,u2s,u1d,u2d
     real(8) ::  dk, kk
-    real(8), allocatable, dimension(:) :: Es,Ed,Pud,kn
+    real(8), allocatable, dimension(:) :: Es,Ed,Pud,kn,Ep
     integer, allocatable, dimension(:) :: Ecount
     integer :: i,j,ierr,allkmax,kOrdinal
     real(8) :: Esspe, Edspe, Pudspe, k2Es, k2Ed
@@ -690,6 +690,7 @@ module userdefine
         !
         u1spe(i,j)=u1spe(i,j)/(1.d0*ia*ja)
         u2spe(i,j)=u2spe(i,j)/(1.d0*ia*ja)
+        pspe(i,j)=pspe(i,j)/(1.d0*ia*ja)
         !
     end do
     end do
@@ -698,10 +699,12 @@ module userdefine
     allocate(k1(1:ia,1:jmf),k2(1:ia,1:jmf))
     call GenerateWave(ia,jmf,ia,ja,j0f,k1,k2)
     !
-    allocate(Es(0:allkmax),Ed(0:allkmax),Pud(0:allkmax),kn(0:allkmax),Ecount(0:allkmax))
+    allocate(Es(0:allkmax),Ed(0:allkmax),Pud(0:allkmax),&
+            Ep(0:allkmax),kn(0:allkmax),Ecount(0:allkmax))
     Ed = 0.d0
     Es = 0.d0
     Pud = 0.d0
+    Ep = 0.d0
     kn = 0.d0
     Ecount = 0
     Edspe = 0.d0
@@ -734,6 +737,7 @@ module userdefine
           Es(kOrdinal) = Es(kOrdinal) + usspe*conjg(usspe)*kk/2
           Ed(kOrdinal) = Ed(kOrdinal) + udspe*conjg(udspe)*kk/2
           Pud(kOrdinal) = Pud(kOrdinal) + dimag(pspe(i,j)*dconjg(udspe)*kk)*kk
+          Ep(kOrdinal) = Ep(kOrdinal) + pspe(i,j)*conjg(pspe(i,j))*kk/2
           kn(kOrdinal) = kn(kOrdinal) + kk
         endif
         Edspe = Edspe + roinf * (udspe*dconjg(udspe))/2
@@ -751,6 +755,7 @@ module userdefine
       Es(i) = psum(Es(i))/Ecount(i)
       Ed(i) = psum(Ed(i))/Ecount(i)
       Pud(i) = psum(Pud(i))/Ecount(i)
+      Ep(i) = psum(Ep(i))/Ecount(i)
       kn(i) =  psum(kn(i))/Ecount(i)
     enddo
     Edspe = psum(Edspe)
@@ -762,7 +767,7 @@ module userdefine
     if(lio) then
       call listwrite(hand_f,Esspe,Edspe,Pudspe,k2Es,k2Ed)
       do i=1,allkmax
-        call listwrite(hand_g,kn(i),Es(i),Ed(i),Pud(i))
+        call listwrite(hand_g,kn(i),Es(i),Ed(i),Pud(i),Ep(i))
       enddo
     endif
     !
@@ -775,7 +780,7 @@ module userdefine
     deallocate(localvel1t, localvel2t)
     deallocate(fftvel1, fftvel2)
     deallocate(k1,k2)
-    deallocate(Es,Ed,Pud,Ecount,kn)
+    deallocate(Es,Ed,Pud,Ep,Ecount,kn)
     !
   end subroutine spec_stat
   !+-------------------------------------------------------------------+
