@@ -335,9 +335,9 @@ module udf_tool
         real(8), intent(in) :: kx,ky
         !
         if(m .eq. 1)then
-        ProjectPi3_2D = kx * ProjectP2(i,j,kx,ky)
+        ProjectPi3_2D = kx * ProjectPi2(i,j,kx,ky)
         else if(m .eq. 2)then
-        ProjectPi3_2D = ky * ProjectP2(i,j,kx,ky)
+        ProjectPi3_2D = ky * ProjectPi2(i,j,kx,ky)
         else
         stop "ProjectPi3_2D error: m"
         endif
@@ -351,11 +351,11 @@ module udf_tool
         real(8), intent(in) :: kx,ky,kz
         !
         if(m .eq. 1)then
-        ProjectPi3_3D = kx * ProjectP2(i,j,kx,ky,kz)
+        ProjectPi3_3D = kx * ProjectPi2(i,j,kx,ky,kz)
         else if(m .eq. 2)then
-        ProjectPi3_3D = ky * ProjectP2(i,j,kx,ky,kz)
+        ProjectPi3_3D = ky * ProjectPi2(i,j,kx,ky,kz)
         else if(m .eq. 3)then
-        ProjectPi3_3D = kz * ProjectP2(i,j,kx,ky,kz)
+        ProjectPi3_3D = kz * ProjectPi2(i,j,kx,ky,kz)
         else
         stop "ProjectPi3_3D error: m"
         endif

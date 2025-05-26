@@ -1788,14 +1788,14 @@ module udf_pp_spectra
         endif
       end if
       !
-      Tsall = Tsall + TsO
-      Tssall= Tssall+ TssO
-      Tcall = Tcall + TdO
-      Tccall= Tccall+ TddO
-      k2Ts  = k2Ts  + kk**2 * TsO
-      k2Tss = k2Tss + kk**2 * TssO
-      k2Tc  = k2Tc  + kk**2 * TdO
-      k2Tcc = k2Tcc + kk**2 * TddO
+      Tsall = Tsall - TsO
+      Tssall= Tssall- TssO
+      Tcall = Tcall - TdO
+      Tccall= Tccall- TddO
+      k2Ts  = k2Ts  - kk**2 * TsO
+      k2Tss = k2Tss - kk**2 * TssO
+      k2Tc  = k2Tc  - kk**2 * TdO
+      k2Tcc = k2Tcc - kk**2 * TddO
     enddo
     enddo
     !
@@ -1827,10 +1827,10 @@ module udf_pp_spectra
     !
     Tsall = psum(Tsall)
     Tcall = psum(Tcall)
-    k2Ts = psum(k2Ts)
-    k2Tc = psum(k2Tc)
     Tssall = psum(Tssall)
     Tccall = psum(Tccall)
+    k2Ts = psum(k2Ts)
+    k2Tc = psum(k2Tc)
     k2Tss = psum(k2Tss)
     k2Tcc = psum(k2Tcc)
     !
@@ -1843,25 +1843,30 @@ module udf_pp_spectra
         outfilename = 'pp/Tspec.dat'
       endif
       !
+      ! call listinit(filename=outfilename,handle=hand_a, &
+      !                   firstline='nstep time k Ts Tss Tstheta Td Tdd Tdstheta Tddtheta')
+      ! do i=0,allkmax
+      !   if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Ts(i),Tss(i),Tstheta(i),Td(i),Tdd(i),Tdstheta(i),Tddtheta(i))
+      ! end do
       call listinit(filename=outfilename,handle=hand_a, &
-                        firstline='nstep time k Ts Tss Tstheta Td Tdd Tdstheta Tddtheta')
+                        firstline='nstep time k Ts Tds Td Tsd')
       do i=0,allkmax
-        if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Ts(i),Tss(i),Tstheta(i),Td(i),Tdd(i),Tdstheta(i),Tddtheta(i))
+        if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Tss(i),Ts(i)+Tstheta(i)-Tss(i),Tdd(i)+Tddtheta(i),Td(i)+Tdstheta(i)-Tdd(i))
       end do
       !
       print*,' <<< '//outfilename//'... done.'
       !
-      if (thefilenumb .ne. 0) then
-        outfilename = 'pp/Tspec_aux'//stepname//'.dat'
-      else
-        outfilename = 'pp/Tspec_aux.dat'
-      endif
+      ! if (thefilenumb .ne. 0) then
+      !   outfilename = 'pp/Tspec_aux'//stepname//'.dat'
+      ! else
+      !   outfilename = 'pp/Tspec_aux.dat'
+      ! endif
+      ! !
+      ! call listinit(filename=outfilename,handle=hand_b, &
+      !       firstline='nstep time k2Ts k2Tc Tsall Tcall Tssall Tccall k2Tss k2Tcc')
+      ! call listwrite(hand_b,k2Ts,k2Tc,Tsall,Tcall,Tssall,Tccall,k2Tss,k2Tcc)
       !
-      call listinit(filename=outfilename,handle=hand_b, &
-            firstline='nstep time k2Ts k2Tc Tsall Tcall Tssall Tccall k2Tss k2Tcc')
-      call listwrite(hand_b,k2Ts,k2Tc,Tsall,Tcall,Tssall,Tccall,k2Tss,k2Tcc)
-      !
-      print*,' <<< '//outfilename//'... done.'
+      ! print*,' <<< '//outfilename//'... done.'
     endif
     !
     !
@@ -2107,12 +2112,9 @@ module udf_pp_spectra
       kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15)
       !
       ucspe(i,j,k) = k1(i,j,k)/kk * u1spe(i,j,k) + k2(i,j,k)/kk * u2spe(i,j,k) + k3(i,j,k)/kk * u3spe(i,j,k)
-      u1c(i,j,k)   =  k1(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k1(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k1(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
-      u2c(i,j,k)   =  k2(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k2(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k2(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
-      u3c(i,j,k)   =  k3(i,j,k)*k1(i,j,k)/(kk**2) * u1spe(i,j,k) + k3(i,j,k)*k2(i,j,k)/(kk**2) * u2spe(i,j,k) &
-                + k3(i,j,k)*k3(i,j,k)/(kk**2) * u3spe(i,j,k)
+      u1c(i,j,k)   =  ucspe(i,j,k) * k1(i,j,k)/kk
+      u2c(i,j,k)   =  ucspe(i,j,k) * k2(i,j,k)/kk
+      u3c(i,j,k)   =  ucspe(i,j,k) * k3(i,j,k)/kk
       u1s(i,j,k)   =  u1spe(i,j,k) - u1c(i,j,k)
       u2s(i,j,k)   =  u2spe(i,j,k) - u2c(i,j,k)
       u3s(i,j,k)   =  u3spe(i,j,k) - u3c(i,j,k)
@@ -2290,6 +2292,7 @@ module udf_pp_spectra
     call fftw_mpi_execute_dft(forward_plan,u1c,u1c)
     call fftw_mpi_execute_dft(forward_plan,u2c,u2c)
     call fftw_mpi_execute_dft(forward_plan,u3c,u3c)
+    call fftw_mpi_execute_dft(forward_plan,theta,theta)
     !
     !
     do k=1,km
@@ -2338,6 +2341,7 @@ module udf_pp_spectra
       u1c(i,j,k)=u1c(i,j,k)/(1.d0*ia*ja*ka)
       u2c(i,j,k)=u2c(i,j,k)/(1.d0*ia*ja*ka)
       u3c(i,j,k)=u3c(i,j,k)/(1.d0*ia*ja*ka)
+      theta(i,j,k)=theta(i,j,k)/(1.d0*ia*ja*ka)
       !
     enddo
     enddo
@@ -2536,14 +2540,14 @@ module udf_pp_spectra
           Tdd(kOrdinal)      = Tdd(kOrdinal)      - TddO
         endif
       end if
-      Tsall = Tsall  + TsO
-      Tssall= Tssall + TssO
-      Tcall = Tcall  + TdO
-      Tccall= Tccall + TddO
-      k2Ts  = k2Ts   + kk**2 * TsO
-      k2Tss = k2Tss  + kk**2 * TssO
-      k2Tc  = k2Tc   + kk**2 * TdO
-      k2Tcc = k2Tcc  + kk**2 * TddO
+      Tsall = Tsall  - TsO
+      Tssall= Tssall - TssO
+      Tcall = Tcall  - TdO
+      Tccall= Tccall - TddO
+      k2Ts  = k2Ts   - kk**2 * TsO
+      k2Tss = k2Tss  - kk**2 * TssO
+      k2Tc  = k2Tc   - kk**2 * TdO
+      k2Tcc = k2Tcc  - kk**2 * TddO
     enddo
     enddo
     enddo
@@ -2576,10 +2580,10 @@ module udf_pp_spectra
     !
     Tsall = psum(Tsall)
     Tcall = psum(Tcall)
-    k2Ts = psum(k2Ts)
-    k2Tc = psum(k2Tc)
     Tssall = psum(Tssall)
     Tccall = psum(Tccall)
+    k2Ts = psum(k2Ts)
+    k2Tc = psum(k2Tc)
     k2Tss = psum(k2Tss)
     k2Tcc = psum(k2Tcc)
     !
@@ -2593,24 +2597,29 @@ module udf_pp_spectra
       endif
       !
       call listinit(filename=outfilename,handle=hand_a, &
-                        firstline='nstep time k Ts Tss Tstheta Td Tdd Tdstheta Tddtheta')
+                        firstline='nstep time k Ts Tds Td Tsd')
       do i=0,allkmax
-        if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Ts(i),Tss(i),Tstheta(i),Td(i),Tdd(i),Tdstheta(i),Tddtheta(i))
+        if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Tss(i),Ts(i)+Tstheta(i)-Tss(i),Tdd(i)+Tddtheta(i),Td(i)+Tdstheta(i)-Tdd(i))
       end do
+      ! call listinit(filename=outfilename,handle=hand_a, &
+      !                   firstline='nstep time k Ts Tss Tstheta Td Tdd Tdstheta Tddtheta')
+      ! do i=0,allkmax
+      !   if(Tcount(i)>1e-3) call listwrite(hand_a,kn(i),Ts(i),Tss(i),Tstheta(i),Td(i),Tdd(i),Tdstheta(i),Tddtheta(i))
+      ! end do
       !
       print*,' <<< '//outfilename//'... done.'
       !
-      if (thefilenumb .ne. 0) then
-        outfilename = 'pp/Tspec_aux'//stepname//'.dat'
-      else
-        outfilename = 'pp/Tspec_aux.dat'
-      endif
-      !
-      call listinit(filename=outfilename,handle=hand_b, &
-            firstline='nstep time k2Ts k2Tc Tsall Tcall Tssall Tccall k2Tss k2Tcc')
-      call listwrite(hand_b,k2Ts,k2Tc,Tsall,Tcall,Tssall,Tccall,k2Tss,k2Tcc)
-      !
-      print*,' <<< '//outfilename//'... done.'
+      ! if (thefilenumb .ne. 0) then
+      !   outfilename = 'pp/Tspec_aux'//stepname//'.dat'
+      ! else
+      !   outfilename = 'pp/Tspec_aux.dat'
+      ! endif
+      ! !
+      ! call listinit(filename=outfilename,handle=hand_b, &
+      !       firstline='nstep time k2Ts k2Tc Tsall Tcall Tssall Tccall k2Tss k2Tcc')
+      ! call listwrite(hand_b,k2Ts,k2Tc,Tsall,Tcall,Tssall,Tccall,k2Tss,k2Tcc)
+      ! !
+      ! print*,' <<< '//outfilename//'... done.'
     endif
     !
     !

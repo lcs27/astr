@@ -700,7 +700,6 @@ module userdefine
       end do
       !
       !
-      deallocate(alphas,alphad)
     endif
     !
   end subroutine udf_src

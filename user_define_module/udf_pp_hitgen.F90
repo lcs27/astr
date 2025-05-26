@@ -84,6 +84,12 @@ module udf_pp_hitgen
       !
       if(mpirank == 0)   print *, ' ** hitstat 3D'
       call hitstat3d
+      !
+    elseif(trim(readmode)=='3Dto2D') then
+      !
+      if(mpirank == 0)   print *, ' ** 3D to 2D'
+      call initflow3Dto2D
+      !
     elseif(trim(readmode)=='scale3D') then
       !
       if(mpirank == 0) then
@@ -1513,6 +1519,65 @@ module udf_pp_hitgen
     deallocate(sigma,dsigma11,dsigma12,dsigma22)
     deallocate(ddsigma11dx1,ddsigma12dx1,ddsigma22dx2)
   end subroutine incompressuresolve2d
+  !
+  subroutine initflow3Dto2D
+    !
+    use readwrite, only : readinput
+    use commvar,only : im,jm,km,hm,ia,ja,ka
+    use commarray, only : vel,rho,prs,tmp
+    use parallel, only: mpisizedis,parapp,parallelini
+    use hdf5io
+    !
+    ! arguments
+    character(len=1) :: modeio
+    !
+    call readinput
+    !
+    call mpisizedis
+    if(mpirank==0) print*, '** mpisizedis done!'
+    !
+    call parapp
+    if(mpirank==0) print*, '** parapp done!'
+    !
+    call parallelini
+    if(mpirank==0) print*, '** parallelini done!'
+    !
+    !
+    modeio='h'
+    !
+    if(mpirank==0)then
+      if(ka==0)then
+        print *,"2D, ia:",ia,",ja:",ja
+      else
+        if(mpirank==0) print*, 'Not a 2D form'
+        stop
+      endif
+    endif
+    !
+    allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km), prs(0:im,0:jm,0:km),tmp(0:im,0:jm,0:km))
+
+    call h5io_init(trim('datin/flowini2d.h5'),mode='read')
+    !
+    call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+    call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+    call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+    call h5read(varname='p',  var=prs(0:im,0:jm,0:km),mode = modeio)
+    call h5read(varname='t', var=tmp(0:im,0:jm,0:km), mode = modeio)
+    call h5io_end
+    !
+    call h5io_init(trim('datin/flowini2d.h5'),mode='write')
+    !
+    call h5wa2d_r8(varname='ro',var=rho(0:im,0:jm,0),  dir='k')
+    call h5wa2d_r8(varname='u1',var=vel(0:im,0:jm,0,1),dir='k')
+    call h5wa2d_r8(varname='u2',var=vel(0:im,0:jm,0,2),dir='k')
+    call h5wa2d_r8(varname='p', var=prs(0:im,0:jm,0),  dir='k')
+    call h5wa2d_r8(varname='t', var=tmp(0:im,0:jm,0),  dir='k')
+    !
+    call h5io_end
+    !
+    deallocate(rho,vel,prs,tmp)
+    !
+  end subroutine initflow3Dto2D
   !
   subroutine scale3D(flowfile)
     !!
