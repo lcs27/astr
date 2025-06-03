@@ -80,6 +80,28 @@ module udf_pp_SGS
             call bcast(filenumb)
             call SGSPi2Dlocal(filenumb)
             !
+        elseif(trim(readmode)=='E2D') then
+          ! 
+            if(mpirank == 0) then
+                print* ," ** Use SGSE2D"
+                call readkeyboad(inputfile) 
+                read(inputfile,'(i4)') filenumb
+                print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            call SGSE2D(filenumb)
+            !
+        elseif(trim(readmode)=='E3D') then
+          ! 
+            if(mpirank == 0) then
+                print* ," ** Use SGSE3D"
+                call readkeyboad(inputfile) 
+                read(inputfile,'(i4)') filenumb
+                print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            call SGSE3D(filenumb)
+            !
         elseif(trim(readmode)=='Pi3Dint') then
             ! 
             if(mpirank == 0) then
@@ -1162,6 +1184,669 @@ module udf_pp_SGS
       deallocate(Pis1,Pis2,Pim2,Pim3,Pid)
       !
     end subroutine SGSPi2Dlocal
+    !
+    subroutine SGSE2D(thefilenumb)
+      !
+      !
+      use, intrinsic :: iso_c_binding
+      use readwrite, only : readinput
+      use fftwlink
+      use commvar,only : time,nstep,im,jm,km,ia,ja,ka
+      use commarray, only: vel, rho
+      use hdf5io
+      use utility,  only : listinit,listwrite
+      use parallel, only : bcast, pmax, pmin, psum, lio, parallelini,mpistop
+      use solver, only: refcal
+      include 'fftw3-mpi.f03'
+      !
+      integer,intent(in) :: thefilenumb
+      integer :: fh
+      integer :: i,j,m,n
+      character(len=128) :: infilename,outfilename,outfilename2
+      character(len=4) :: stepname,mname
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: w1,w2,rhocom
+      real(8), allocatable, dimension(:,:) :: k1,k2
+      complex(8) :: imag
+      real(8),allocatable,dimension(:) :: l_lim
+      integer :: num_l,num_alpha,num_alphamin
+      integer :: hand_a,hand_b
+      real(8) :: l_min, ratio_max, ratio_min
+      real(8) :: Gl
+      real(8), allocatable, dimension(:) :: ES,EW,ED,E
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: w1f,w2f,rhof
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: A11,A12,A21,A22
+      !
+      complex(8), allocatable, dimension(:,:) :: All
+      complex(8), allocatable, dimension(:,:) :: S11,S12,S21,S22
+      complex(8), allocatable, dimension(:,:) :: W12,W21
+      !
+      type(C_PTR) :: c_w1,c_w2,c_rhocom,forward_plan,backward_plan
+      type(C_PTR) :: c_w1f,c_w2f,c_rho
+      type(C_PTR) :: c_A11,c_A12,c_A21,c_A22
+      !
+      integer,dimension(8) :: value
+      character(len=1) :: modeio
+      logical :: loutput
+      !
+      call readinput
+      call refcal
+      if(mpirank==0)  print*, '** refcal done!'
+      !
+      modeio='h'
+      ! Initialization
+      call fftw_mpi_init()
+      if(mpirank==0)  print *, "fftw_mpi initialized"
+      !
+      if(mpirank==0)  print *, "ia:",ia,",ja:",ja
+      !
+      call mpisizedis_fftw
+      if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+      !
+      call parallelini
+      if(mpirank==0)  print*, '** parallelini done!'
+      !
+      !!!! Read velocity and density field
+      allocate(vel(0:im,0:jm,0:km,1:2), rho(0:im,0:jm,0:km))
+      !
+      if (thefilenumb .ne. 0) then
+        write(stepname,'(i4.4)')thefilenumb
+        infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+      else
+        infilename='outdat/flowfield.'//modeio//'5'
+      endif
+      !
+      call h5io_init(filename=infilename,mode='read')
+      !
+      call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+      !
+      call h5io_end
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      if(mpirank==0)  print *, "Field read finish!"
+      !
+      !!!! Prepare initial field in Fourier space
+      !! velocity
+      c_w1 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1, w1, [imfftw,jmfftw])
+      c_w2 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2, w2, [imfftw,jmfftw])
+      c_rhocom = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rhocom, rhocom, [imfftw,jmfftw])
+      !
+      forward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+      backward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+      !
+      allocate(All(1:im,1:jm),&
+              S11(1:im,1:jm),S12(1:im,1:jm),&
+              S21(1:im,1:jm),S22(1:im,1:jm),&
+              W12(1:im,1:jm),W21(1:im,1:jm))
+      !
+      do j=1,jm
+      do i=1,im
+        !
+        w1(i,j)=CMPLX(vel(i,j,0,1)*rho(i,j,0),0.d0,C_INTPTR_T);
+        w2(i,j)=CMPLX(vel(i,j,0,2)*rho(i,j,0),0.d0,C_INTPTR_T);
+        rhocom(i,j)=CMPLX(rho(i,j,0),0.d0,C_INTPTR_T);
+        !
+      end do
+      end do
+      !
+      !After this bloc, w1 is (rho*u1) in spectral space
+      call fftw_mpi_execute_dft(forward_plan,w1,w1)
+      call fftw_mpi_execute_dft(forward_plan,w2,w2)
+      call fftw_mpi_execute_dft(forward_plan,rhocom,rhocom)
+      !
+      do j=1,jm
+      do i=1,im
+        !
+        w1(i,j)=w1(i,j)/(1.d0*ia*ja)
+        w2(i,j)=w2(i,j)/(1.d0*ia*ja)
+        !
+        rhocom(i,j)=rhocom(i,j)/(1.d0*ia*ja)
+        !
+      end do
+      end do
+      !
+      !
+      !! wavenumber
+      allocate(k1(1:im,1:jm),k2(1:im,1:jm))
+      call GenerateWave(im,jm,ia,ja,j0f,k1,k2)
+      !
+      !! Imaginary number prepare
+      imag = CMPLX(0.d0,1.d0,8)
+      !
+      !
+      if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
+      !!!! Prepare l,alpha and others
+      call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
+      l_min = 2*pi/ia
+      allocate(l_lim(1:num_l))
+      !
+      call SGSscale_allocate(num_l,l_min,ratio_max,ratio_min,l_lim)
+      !
+      if(mpirank==0)  print *, "Integrate point allocated"
+      !
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      !!!!
+      allocate(ES(1:num_l),EW(1:num_l),ED(1:num_l),E(1:num_l))
+      !
+      c_w1f = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1f, w1f,  [imfftw,jmfftw])
+      c_w2f = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2f, w2f,  [imfftw,jmfftw])
+      c_rho = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rho, rhof,[imfftw,jmfftw])
+      !
+      c_A11 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A11, A11,[imfftw,jmfftw])
+      c_A12 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A12, A12,[imfftw,jmfftw])
+      c_A21 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A21, A21,[imfftw,jmfftw])
+      c_A22 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A22, A22,[imfftw,jmfftw])
+      !
+      ES=0.d0
+      EW=0.d0
+      ED=0.d0
+      E=0.d0
+      !
+      if(mpirank==0)  print *, "Array allocated and initialized"
+      !
+      do m=1,num_l
+        !
+        !!!!!! Filter to get Sij filted by l
+        if(mpirank==0)  print *, '* l = ', l_lim(m) ,' at', m, '/', num_l
+        !
+        !
+        !!!! Velocity Favre average and density average
+        ! After this bloc, w1 is (rho*u1) in spectral space
+        do j=1,jm
+        do i=1,im
+          Gl = exp(-(k1(i,j)**2+k2(i,j)**2)*l_lim(m)**2/2.d0) ! Filtre scale :l
+          !
+          w1f(i,j)    = w1(i,j)    *Gl
+          w2f(i,j)    = w2(i,j)    *Gl
+          !
+          rhof(i,j)   = rhocom(i,j)*Gl
+        enddo
+        enddo
+        !
+        ! After this bloc, w1 is (rho*u1) in physical space
+        call fftw_mpi_execute_dft(backward_plan,w1f,w1f)
+        call fftw_mpi_execute_dft(backward_plan,w2f,w2f)
+        call fftw_mpi_execute_dft(backward_plan,rhof,rhof)
+        !
+        ! After this bloc, w1 is u1 in physical space
+        do j=1,jm
+        do i=1,im
+          !
+          w1f(i,j) = w1f(i,j)/rhof(i,j)
+          w2f(i,j) = w2f(i,j)/rhof(i,j)
+          !
+        enddo
+        enddo
+        !
+        ! After this bloc, w1 is u1 in fourier space, A11 is A11 in fourier space
+        call fftw_mpi_execute_dft(forward_plan,w1f,w1f)
+        call fftw_mpi_execute_dft(forward_plan,w2f,w2f)
+        !
+        do j=1,jm
+        do i=1,im
+          !
+          w1f(i,j)  = w1f(i,j)/(1.d0*ia*ja)
+          w2f(i,j)  = w2f(i,j)/(1.d0*ia*ja)
+          !
+          A11(i,j) = imag*w1f(i,j)*k1(i,j)
+          A21(i,j) = imag*w2f(i,j)*k1(i,j)
+          A12(i,j) = imag*w1f(i,j)*k2(i,j)
+          A22(i,j) = imag*w2f(i,j)*k2(i,j)
+          !
+        end do
+        end do
+        !
+        ! After this bloc, A11 is A11 in physical space
+        call fftw_mpi_execute_dft(backward_plan,A11,A11)
+        call fftw_mpi_execute_dft(backward_plan,A21,A21)
+        call fftw_mpi_execute_dft(backward_plan,A12,A12)
+        call fftw_mpi_execute_dft(backward_plan,A22,A22)
+        !
+        do j=1,jm
+        do i=1,im
+          !
+          All(i,j) = A11(i,j)+A22(i,j)
+          !
+          S11(i,j) = A11(i,j) - 1.d0/2.d0 * All(i,j)
+          S22(i,j) = A22(i,j) - 1.d0/2.d0 * All(i,j)
+          S12(i,j) = (A12(i,j) + A21(i,j))*0.5d0
+          S21(i,j) = S12(i,j)
+          !
+          W12(i,j) = (A12(i,j)-A21(i,j))*0.5d0
+          W21(i,j) = -1.d0*W12(i,j)
+          !
+        end do
+        end do
+        !
+        do j=1,jm
+        do i=1,im
+          !
+          ES(m) = ES(m) + rhof(i,j) * (S11(i,j)*S11(i,j) + S12(i,j)*S12(i,j) + &
+                                      S21(i,j)*S21(i,j) + S22(i,j)*S22(i,j)) / 2.d0
+          !
+          EW(m) = EW(m) + rhof(i,j) * (W12(i,j)*W12(i,j) + W21(i,j)*W21(i,j) ) / 2.d0
+          !
+          ED(m) = ED(m) + rhof(i,j) * (All(i,j)*All(i,j)) / 4.d0
+          !
+          E(m)  = E(m) +  rhof(i,j) * (A11(i,j)*A11(i,j) + A12(i,j)*A12(i,j) + &
+                                       A21(i,j)*A21(i,j) + A22(i,j)*A22(i,j)) / 2.d0
+          !
+        end do
+        end do
+        !
+        if(mpirank==0)  print *, '** l filted!'
+        !
+        ES(m) = psum(ES(m)) / (ia*ja)
+        EW(m) = psum(EW(m)) / (ia*ja)
+        ED(m) = psum(ED(m)) / (ia*ja)
+        E(m)  = psum(E(m))  / (ia*ja)
+        !
+      enddo
+      !
+      if(mpirank==0)  print *, 'Job finish'
+      !
+      if(mpirank==0) then
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_E_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_E.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell ES EW ED E')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), ES(m), EW(m), ED(m), E(m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+      endif
+      !
+      call fftw_destroy_plan(forward_plan)
+      call fftw_destroy_plan(backward_plan)
+      call fftw_mpi_cleanup()
+      call fftw_free(c_w1)
+      call fftw_free(c_w2)
+      call fftw_free(c_rhocom)
+      call fftw_free(c_w1f)
+      call fftw_free(c_w2f)
+      call fftw_free(c_rho)
+      call fftw_free(c_A11)
+      call fftw_free(c_A12)
+      call fftw_free(c_A21)
+      call fftw_free(c_A22)
+      call mpistop
+      deallocate(k1,k2)
+      deallocate(l_lim)
+      deallocate(All,S11,S12,S21,S22,W12,W21)
+      deallocate(ES,EW,ED,E)
+      !
+    end subroutine SGSE2D
+    !
+    subroutine SGSE3D(thefilenumb)
+      !
+      use, intrinsic :: iso_c_binding
+      use readwrite, only : readinput
+      use fftwlink
+      use commvar,only : time,nstep,im,jm,km,ia,ja,ka
+      use commarray, only: vel, rho
+      use hdf5io
+      use utility,  only : listinit,listwrite
+      use parallel, only : bcast, pmax, pmin, psum, lio, parallelini,mpistop
+      use solver, only: refcal
+      include 'fftw3-mpi.f03'
+      !
+      integer,intent(in) :: thefilenumb
+      integer :: fh
+      integer :: i,j,k,m
+      character(len=128) :: infilename,outfilename
+      character(len=4) :: stepname
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1,w2,w3,rhocom
+      real(8), allocatable, dimension(:,:,:) :: k1,k2,k3
+      complex(8) :: imag
+      real(8),allocatable,dimension(:) :: l_lim
+      integer :: num_l,num_alpha,num_alphamin
+      integer :: hand_a
+      real(8) :: l_min, ratio_max, ratio_min
+      real(8) :: Gl
+      real(8), allocatable, dimension(:) :: ES,EW,ED,E
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1f,w2f,w3f,rhof
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A11,A12,A13
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A21,A22,A23
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A31,A32,A33
+      !
+      real(8), allocatable, dimension(:,:,:) :: All
+      real(8), allocatable, dimension(:,:,:) :: S11,S12,S13
+      real(8), allocatable, dimension(:,:,:) :: S21,S22,S23
+      real(8), allocatable, dimension(:,:,:) :: S31,S32,S33
+      real(8), allocatable, dimension(:,:,:) :: W12,W13,W21,W23,W31,W32
+      !
+      type(C_PTR) :: c_w1,c_w2,c_w3,c_rhocom,forward_plan,backward_plan
+      type(C_PTR) :: c_w1f,c_w2f,c_w3f,c_rho
+      type(C_PTR) :: c_A11,c_A12,c_A13
+      type(C_PTR) :: c_A21,c_A22,c_A23
+      type(C_PTR) :: c_A31,c_A32,c_A33
+      !
+      integer,dimension(8) :: value
+      character(len=1) :: modeio
+      logical :: loutput
+      !
+      call readinput
+      call refcal
+      if(mpirank==0)  print*, '** refcal done!'
+      !
+      modeio='h'
+      ! Initialization
+      call fftw_mpi_init()
+      if(mpirank==0)  print *, "fftw_mpi initialized"
+      !
+      if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:",ka
+      !
+      call mpisizedis_fftw
+      if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+      !
+      call parallelini
+      if(mpirank==0)  print*, '** parallelini done!'
+      !
+      !!!! Read velocity and density field
+      allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km))
+      !
+      if (thefilenumb .ne. 0) then
+      write(stepname,'(i4.4)')thefilenumb
+      infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+      else
+      infilename='outdat/flowfield.'//modeio//'5'
+      endif
+      !
+      call h5io_init(filename=infilename,mode='read')
+      !
+      call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+      !
+      call h5io_end
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      if(mpirank==0)  print *, "Field read finish!"
+      !
+      !!!! Prepare initial field in Fourier space
+      c_w1 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1, w1, [imfftw,jmfftw,kmfftw])
+      c_w2 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2, w2, [imfftw,jmfftw,kmfftw])
+      c_w3 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3, w3, [imfftw,jmfftw,kmfftw])
+      c_rhocom = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rhocom, rhocom, [imfftw,jmfftw,kmfftw])
+      !
+      forward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+      backward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+      !
+      allocate(All(1:im,1:jm,1:km),&
+          S11(1:im,1:jm,1:km),S12(1:im,1:jm,1:km),S13(1:im,1:jm,1:km),&
+          S21(1:im,1:jm,1:km),S22(1:im,1:jm,1:km),S23(1:im,1:jm,1:km),&
+          S31(1:im,1:jm,1:km),S32(1:im,1:jm,1:km),S33(1:im,1:jm,1:km),&
+          W12(1:im,1:jm,1:km),W13(1:im,1:jm,1:km),W21(1:im,1:jm,1:km),&
+          W23(1:im,1:jm,1:km),W31(1:im,1:jm,1:km),W32(1:im,1:jm,1:km))
+      !
+      do k=1,km
+      do j=1,jm
+      do i=1,im
+      w1(i,j,k)=CMPLX(vel(i,j,k,1)*rho(i,j,k),0.d0,C_INTPTR_T)
+      w2(i,j,k)=CMPLX(vel(i,j,k,2)*rho(i,j,k),0.d0,C_INTPTR_T)
+      w3(i,j,k)=CMPLX(vel(i,j,k,3)*rho(i,j,k),0.d0,C_INTPTR_T)
+      rhocom(i,j,k)=CMPLX(rho(i,j,k),0.d0,C_INTPTR_T)
+      end do
+      end do
+      end do
+      !
+      call fftw_mpi_execute_dft(forward_plan,w1,w1)
+      call fftw_mpi_execute_dft(forward_plan,w2,w2)
+      call fftw_mpi_execute_dft(forward_plan,w3,w3)
+      call fftw_mpi_execute_dft(forward_plan,rhocom,rhocom)
+      !
+      do k=1,km
+      do j=1,jm
+      do i=1,im
+      w1(i,j,k)=w1(i,j,k)/(1.d0*ia*ja*ka)
+      w2(i,j,k)=w2(i,j,k)/(1.d0*ia*ja*ka)
+      w3(i,j,k)=w3(i,j,k)/(1.d0*ia*ja*ka)
+      rhocom(i,j,k)=rhocom(i,j,k)/(1.d0*ia*ja*ka)
+      end do
+      end do
+      end do
+      !
+      !! wavenumber
+      allocate(k1(1:im,1:jm,1:km),k2(1:im,1:jm,1:km),k3(1:im,1:jm,1:km))
+      call GenerateWave(im,jm,km,ia,ja,ka,k0f,k1,k2,k3)
+      !
+      !! Imaginary number prepare
+      imag = CMPLX(0.d0,1.d0,8)
+      !
+      if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
+      !!!! Prepare l,alpha and others
+      call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
+      l_min = 2*pi/ia
+      allocate(l_lim(1:num_l))
+      call SGSscale_allocate(num_l,l_min,ratio_max,ratio_min,l_lim)
+      if(mpirank==0)  print *, "Integrate point allocated"
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      allocate(ES(1:num_l),EW(1:num_l),ED(1:num_l),E(1:num_l))
+      !
+      c_w1f = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1f, w1f,  [imfftw,jmfftw,kmfftw])
+      c_w2f = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2f, w2f,  [imfftw,jmfftw,kmfftw])
+      c_w3f = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3f, w3f,  [imfftw,jmfftw,kmfftw])
+      c_rho = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rho, rhof,[imfftw,jmfftw,kmfftw])
+      !
+      c_A11 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A11, A11,[imfftw,jmfftw,kmfftw])
+      c_A12 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A12, A12,[imfftw,jmfftw,kmfftw])
+      c_A13 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A13, A13,[imfftw,jmfftw,kmfftw])
+      c_A21 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A21, A21,[imfftw,jmfftw,kmfftw])
+      c_A22 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A22, A22,[imfftw,jmfftw,kmfftw])
+      c_A23 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A23, A23,[imfftw,jmfftw,kmfftw])
+      c_A31 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A31, A31,[imfftw,jmfftw,kmfftw])
+      c_A32 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A32, A32,[imfftw,jmfftw,kmfftw])
+      c_A33 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A33, A33,[imfftw,jmfftw,kmfftw])
+      !
+      ES=0.d0
+      EW=0.d0
+      ED=0.d0
+      E=0.d0
+      !
+      if(mpirank==0)  print *, "Array allocated and initialized"
+      !
+      do m=1,num_l
+        if(mpirank==0)  print *, '* l = ', l_lim(m) ,' at', m, '/', num_l
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          Gl = exp(-(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)*l_lim(m)**2/2.d0)
+          w1f(i,j,k)    = w1(i,j,k)    *Gl
+          w2f(i,j,k)    = w2(i,j,k)    *Gl
+          w3f(i,j,k)    = w3(i,j,k)    *Gl
+          rhof(i,j,k)   = rhocom(i,j,k)*Gl
+        enddo
+        enddo
+        enddo
+        !
+        call fftw_mpi_execute_dft(backward_plan,w1f,w1f)
+        call fftw_mpi_execute_dft(backward_plan,w2f,w2f)
+        call fftw_mpi_execute_dft(backward_plan,w3f,w3f)
+        call fftw_mpi_execute_dft(backward_plan,rhof,rhof)
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          w1f(i,j,k) = w1f(i,j,k)/rhof(i,j,k)
+          w2f(i,j,k) = w2f(i,j,k)/rhof(i,j,k)
+          w3f(i,j,k) = w3f(i,j,k)/rhof(i,j,k)
+        enddo
+        enddo
+        enddo
+        !
+        call fftw_mpi_execute_dft(forward_plan,w1f,w1f)
+        call fftw_mpi_execute_dft(forward_plan,w2f,w2f)
+        call fftw_mpi_execute_dft(forward_plan,w3f,w3f)
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          w1f(i,j,k)  = w1f(i,j,k)/(1.d0*ia*ja*ka)
+          w2f(i,j,k)  = w2f(i,j,k)/(1.d0*ia*ja*ka)
+          w3f(i,j,k)  = w3f(i,j,k)/(1.d0*ia*ja*ka)
+          !
+          A11(i,j,k) = imag*w1f(i,j,k)*k1(i,j,k)
+          A21(i,j,k) = imag*w2f(i,j,k)*k1(i,j,k)
+          A31(i,j,k) = imag*w3f(i,j,k)*k1(i,j,k)
+          A12(i,j,k) = imag*w1f(i,j,k)*k2(i,j,k)
+          A22(i,j,k) = imag*w2f(i,j,k)*k2(i,j,k)
+          A32(i,j,k) = imag*w3f(i,j,k)*k2(i,j,k)
+          A13(i,j,k) = imag*w1f(i,j,k)*k3(i,j,k)
+          A23(i,j,k) = imag*w2f(i,j,k)*k3(i,j,k)
+          A33(i,j,k) = imag*w3f(i,j,k)*k3(i,j,k)
+        end do
+        end do
+        end do
+        !
+        call fftw_mpi_execute_dft(backward_plan,A11,A11)
+        call fftw_mpi_execute_dft(backward_plan,A21,A21)
+        call fftw_mpi_execute_dft(backward_plan,A31,A31)
+        call fftw_mpi_execute_dft(backward_plan,A12,A12)
+        call fftw_mpi_execute_dft(backward_plan,A22,A22)
+        call fftw_mpi_execute_dft(backward_plan,A32,A32)
+        call fftw_mpi_execute_dft(backward_plan,A13,A13)
+        call fftw_mpi_execute_dft(backward_plan,A23,A23)
+        call fftw_mpi_execute_dft(backward_plan,A33,A33)
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          All(i,j,k) = dreal(A11(i,j,k)+A22(i,j,k)+A33(i,j,k))
+          S11(i,j,k) = dreal(A11(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S22(i,j,k) = dreal(A22(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S33(i,j,k) = dreal(A33(i,j,k)) - 1.d0/3.d0 * All(i,j,k)
+          S12(i,j,k) = dreal(A12(i,j,k) + A21(i,j,k))*0.5d0
+          S21(i,j,k) = S12(i,j,k)
+          S13(i,j,k) = dreal(A13(i,j,k) + A31(i,j,k))*0.5d0
+          S31(i,j,k) = S13(i,j,k)
+          S23(i,j,k) = dreal(A23(i,j,k) + A32(i,j,k))*0.5d0
+          S32(i,j,k) = S23(i,j,k)
+          W12(i,j,k) = dreal(A12(i,j,k)-A21(i,j,k))*0.5d0
+          W21(i,j,k) = -1.d0*W12(i,j,k)
+          W13(i,j,k) = dreal(A13(i,j,k)-A31(i,j,k))*0.5d0
+          W31(i,j,k) = -1.d0*W13(i,j,k)
+          W23(i,j,k) = dreal(A23(i,j,k)-A32(i,j,k))*0.5d0
+          W32(i,j,k) = -1.d0*W23(i,j,k)
+        end do
+        end do
+        end do
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          ES(m) = ES(m) + dreal(rhof(i,j,k)) * (S11(i,j,k)*S11(i,j,k) + S12(i,j,k)*S12(i,j,k) + S13(i,j,k)*S13(i,j,k) + &
+                            S21(i,j,k)*S21(i,j,k) + S22(i,j,k)*S22(i,j,k) + S23(i,j,k)*S23(i,j,k) + &
+                            S31(i,j,k)*S31(i,j,k) + S32(i,j,k)*S32(i,j,k) + S33(i,j,k)*S33(i,j,k)) / 2.d0
+          EW(m) = EW(m) + dreal(rhof(i,j,k)) * (W12(i,j,k)*W12(i,j,k) + W13(i,j,k)*W13(i,j,k) + &
+                            W21(i,j,k)*W21(i,j,k) + W23(i,j,k)*W23(i,j,k) + &
+                            W31(i,j,k)*W31(i,j,k) + W32(i,j,k)*W32(i,j,k)) / 2.d0
+          ED(m) = ED(m) + dreal(rhof(i,j,k)) * (All(i,j,k)*All(i,j,k)) / 6.d0
+          E(m)  = E(m)  + dreal(rhof(i,j,k)) * (dreal(A11(i,j,k))*dreal(A11(i,j,k)) + dreal(A12(i,j,k))*dreal(A12(i,j,k)) + &
+                            dreal(A13(i,j,k))*dreal(A13(i,j,k)) + dreal(A21(i,j,k))*dreal(A21(i,j,k)) + &
+                            dreal(A22(i,j,k))*dreal(A22(i,j,k)) + dreal(A23(i,j,k))*dreal(A23(i,j,k)) + &
+                            dreal(A31(i,j,k))*dreal(A31(i,j,k)) + dreal(A32(i,j,k))*dreal(A32(i,j,k)) + &
+                            dreal(A33(i,j,k))*dreal(A33(i,j,k))) / 2.d0
+        end do
+        end do
+        end do
+        !
+        if(mpirank==0)  print *, '** l filted!'
+        !
+        ES(m) = psum(ES(m)) / (ia*ja*ka)
+        EW(m) = psum(EW(m)) / (ia*ja*ka)
+        ED(m) = psum(ED(m)) / (ia*ja*ka)
+        E(m)  = psum(E(m))  / (ia*ja*ka)
+      enddo
+      !
+      if(mpirank==0)  print *, 'Job finish'
+      !
+      if(mpirank==0) then
+      if (thefilenumb .ne. 0) then
+        outfilename = 'pp/SGS_E_'//stepname//'.dat'
+      else
+        outfilename = 'pp/SGS_E.dat'
+      endif
+      call listinit(filename=outfilename,handle=hand_a, &
+              firstline='nstep time ell ES EW ED E')
+      do m=1,num_l
+        call listwrite(hand_a,l_lim(m), ES(m), EW(m), ED(m), E(m))
+      enddo
+      print *, '>>>>', outfilename
+      endif
+      !
+      call fftw_destroy_plan(forward_plan)
+      call fftw_destroy_plan(backward_plan)
+      call fftw_mpi_cleanup()
+      call fftw_free(c_w1)
+      call fftw_free(c_w2)
+      call fftw_free(c_w3)
+      call fftw_free(c_rhocom)
+      call fftw_free(c_w1f)
+      call fftw_free(c_w2f)
+      call fftw_free(c_w3f)
+      call fftw_free(c_rho)
+      call fftw_free(c_A11)
+      call fftw_free(c_A12)
+      call fftw_free(c_A13)
+      call fftw_free(c_A21)
+      call fftw_free(c_A22)
+      call fftw_free(c_A23)
+      call fftw_free(c_A31)
+      call fftw_free(c_A32)
+      call fftw_free(c_A33)
+      call mpistop
+      deallocate(k1,k2,k3)
+      deallocate(l_lim)
+      deallocate(All,S11,S12,S13,S21,S22,S23,S31,S32,S33)
+      deallocate(W12,W13,W21,W23,W31,W32)
+      deallocate(ES,EW,ED,E)
+      !
+    end subroutine SGSE3D
+    !
     !
     subroutine SGSPi2Dint(thefilenumb)
       !
