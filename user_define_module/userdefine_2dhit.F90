@@ -776,9 +776,10 @@ module userdefine
     call fftw_mpi_cleanup()
     call fftw_free(c_u1spe)
     call fftw_free(c_u2spe)
+    call fftw_free(c_pspe)
     !
-    deallocate(localvel1t, localvel2t)
-    deallocate(fftvel1, fftvel2)
+    deallocate(localvel1t, localvel2t,localpt)
+    deallocate(fftvel1, fftvel2, fftp)
     deallocate(k1,k2)
     deallocate(Es,Ed,Pud,Ep,Ecount,kn)
     !
