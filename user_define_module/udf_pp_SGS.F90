@@ -102,6 +102,17 @@ module udf_pp_SGS
             call bcast(filenumb)
             call SGSE3D(filenumb)
             !
+        elseif(trim(readmode)=='ET3D') then
+          ! 
+            if(mpirank == 0) then
+                print* ," ** Use SGSET3D"
+                call readkeyboad(inputfile) 
+                read(inputfile,'(i4)') filenumb
+                print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            call SGSET3Dincom(filenumb)
+            !
         elseif(trim(readmode)=='Pi3Dint') then
             ! 
             if(mpirank == 0) then
@@ -1847,6 +1858,1178 @@ module udf_pp_SGS
       !
     end subroutine SGSE3D
     !
+    subroutine SGSET3Dincom(thefilenumb)
+      !
+      ! 
+      !
+      use, intrinsic :: iso_c_binding
+      use readwrite, only : readinput
+      use fftwlink
+      use commvar,only : time,nstep,im,jm,km,ia,ja,ka
+      use commarray, only: vel, rho
+      use hdf5io
+      use utility,  only : listinit,listwrite
+      use parallel, only : bcast, pmax, pmin, psum, lio, parallelini,mpistop
+      use solver, only: refcal
+      include 'fftw3-mpi.f03'
+      !
+      integer,intent(in) :: thefilenumb
+      integer :: fh
+      integer :: i,j,k,m,n,mmm
+      character(len=128) :: infilename,outfilename,outfilename2
+      character(len=4) :: stepname,mname
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1,w2,w3,rhocom
+      real(8), allocatable, dimension(:,:,:) :: k1,k2,k3
+      complex(8) :: imag
+      real(8),allocatable,dimension(:) :: l_lim
+      real(8),allocatable,dimension(:,:) :: l_sqrtalpha,l_phi,dl_alpha
+      integer,allocatable,dimension(:) :: num_alphas
+      integer :: num_l,num_alpha,num_alphamin
+      integer :: hand_a,hand_b
+      integer :: output_ls(1:17) ! Temporary add
+      real(8) :: l_min, ratio_max, ratio_min
+      real(8) :: Gl,Galpha,Gphi
+      real(8), allocatable, dimension(:) :: Pi1S,Pi2S,Pi3S,Pi1W,Pi2W,Pi3W
+      ! real(8), allocatable, dimension(:) :: Pi1,Pi2,Pi3,Pi4,Pi5,Pi6,Pi7
+      real(8) :: Pi1Sint,Pi2Sint,Pi3Sint,Pi1Wint,Pi2Wint,Pi3Wint
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1_filted,w2_filted,w3_filted,rho_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A11_filted,A12_filted,A13_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A21_filted,A22_filted,A23_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: A31_filted,A32_filted,A33_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: S1mm1_filted_l, S1mm2_filted_l, S1mm3_filted_l
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: S2mm1_filted_l, S2mm2_filted_l, S2mm3_filted_l
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: S3mm1_filted_l, S3mm2_filted_l, S3mm3_filted_l
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: W1mm1_filted_l, W1mm2_filted_l, W1mm3_filted_l
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: W2mm1_filted_l, W2mm2_filted_l, W2mm3_filted_l
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: W3mm1_filted_l, W3mm2_filted_l, W3mm3_filted_l
+      complex(8), allocatable, dimension(:,:,:) :: All_filted
+      complex(8), allocatable, dimension(:,:,:) :: S11_filted,S12_filted,S13_filted
+      complex(8), allocatable, dimension(:,:,:) :: S21_filted,S22_filted,S23_filted
+      complex(8), allocatable, dimension(:,:,:) :: S31_filted,S32_filted,S33_filted
+      complex(8), allocatable, dimension(:,:,:) :: W12_filted,W21_filted
+      complex(8), allocatable, dimension(:,:,:) :: W13_filted,W31_filted
+      complex(8), allocatable, dimension(:,:,:) :: W23_filted,W32_filted
+      !
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: termSS_11,termSS_12,termSS_13,&
+                                                              termSS_21,termSS_22,termSS_23,&
+                                                              termSS_31,termSS_32,termSS_33,&
+                                                              termWW_11,termWW_12,termWW_13,&
+                                                              termWW_21,termWW_22,termWW_23,&
+                                                              termWW_31,termWW_32,termWW_33,&
+                                                              termWS_11,termWS_12,termWS_13,&
+                                                              termWS_21,termWS_22,termWS_23,&
+                                                              termWS_31,termWS_32,termWS_33
+                                                              ! term2,term5,term7,&
+                                                              ! term3_11,term3_12,term3_13,&
+                                                              ! term3_21,term3_22,term3_23,&
+                                                              ! term3_31,term3_32,term3_33,&
+      real(8) :: vxr_D1S,vxr_D2S,vxr_D3S,vxr_D1W,vxr_D2W,vxr_D3W
+      !,vxr_D4,vxr_D5,vxr_D6,vxr_D7
+      !
+      type(C_PTR) :: c_w1,c_w2,c_w3,c_rhocom,forward_plan,backward_plan
+      type(C_PTR) :: c_w1_filted,c_w2_filted,c_w3_filted,c_rho_filted
+      type(C_PTR) :: c_A11_filted,c_A12_filted,c_A13_filted
+      type(C_PTR) :: c_A21_filted,c_A22_filted,c_A23_filted
+      type(C_PTR) :: c_A31_filted,c_A32_filted,c_A33_filted
+      type(C_PTR) :: c_termSS_11,c_termSS_12,c_termSS_13,c_termSS_21,c_termSS_22,c_termSS_23,c_termSS_31,c_termSS_32,c_termSS_33
+      type(C_PTR) :: c_termWW_11,c_termWW_12,c_termWW_13,c_termWW_21,c_termWW_22,c_termWW_23,c_termWW_31,c_termWW_32,c_termWW_33
+      type(C_PTR) :: c_termWS_11,c_termWS_12,c_termWS_13,c_termWS_21,c_termWS_22,c_termWS_23,c_termWS_31,c_termWS_32,c_termWS_33
+      ! type(C_PTR) :: c_term2,c_term5,c_term7
+      ! type(C_PTR) :: c_term3_11,c_term3_12,c_term3_13,c_term3_21,c_term3_22,c_term3_23,c_term3_31,c_term3_32,c_term3_33
+      type(C_PTR) :: c_S1mm1_filted_l, c_S1mm2_filted_l, c_S1mm3_filted_l
+      type(C_PTR) :: c_S2mm1_filted_l, c_S2mm2_filted_l, c_S2mm3_filted_l
+      type(C_PTR) :: c_S3mm1_filted_l, c_S3mm2_filted_l, c_S3mm3_filted_l
+      type(C_PTR) :: c_W1mm1_filted_l, c_W1mm2_filted_l, c_W1mm3_filted_l
+      type(C_PTR) :: c_W2mm1_filted_l, c_W2mm2_filted_l, c_W2mm3_filted_l
+      type(C_PTR) :: c_W3mm1_filted_l, c_W3mm2_filted_l, c_W3mm3_filted_l
+      !
+      integer,dimension(8) :: value
+      character(len=1) :: modeio
+      logical :: loutput
+      !
+      call readinput
+      call refcal
+      if(mpirank==0)  print*, '** refcal done!'
+      !
+      modeio='h'
+      ! Initialization
+      call fftw_mpi_init()
+      if(mpirank==0)  print *, "fftw_mpi initialized"
+      !
+      if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:",ka
+      !
+      call mpisizedis_fftw
+      if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+      !
+      call parallelini
+      if(mpirank==0)  print*, '** parallelini done!'
+      !
+      !!!! Read velocity and density field
+      allocate(vel(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km))
+      !
+      if (thefilenumb .ne. 0) then
+        write(stepname,'(i4.4)')thefilenumb
+        infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+      else
+        infilename='outdat/flowfield.'//modeio//'5'
+      endif
+      !
+      call h5io_init(filename=infilename,mode='read')
+      !
+      call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+      !
+      call h5io_end
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      if(mpirank==0)  print *, "Field read finish!"
+      !
+      !!!! Prepare initial field in Fourier space
+      !! velocity
+      c_w1 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1, w1, [imfftw,jmfftw,kmfftw])
+      c_w2 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2, w2, [imfftw,jmfftw,kmfftw])
+      c_w3 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3, w3, [imfftw,jmfftw,kmfftw])
+      c_rhocom = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rhocom, rhocom, [imfftw,jmfftw,kmfftw])
+      !
+      forward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+      backward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+      !
+      do k=1,km
+      do j=1,jm
+      do i=1,im
+        !
+        w1(i,j,k)=CMPLX(vel(i,j,k,1)*rho(i,j,k),0.d0,C_INTPTR_T);
+        w2(i,j,k)=CMPLX(vel(i,j,k,2)*rho(i,j,k),0.d0,C_INTPTR_T);
+        w3(i,j,k)=CMPLX(vel(i,j,k,3)*rho(i,j,k),0.d0,C_INTPTR_T);
+        rhocom(i,j,k)=CMPLX(rho(i,j,k),0.d0,C_INTPTR_T);
+        !
+      end do
+      end do
+      end do
+      !
+      !After this bloc, w1 is (rho*u1) in spectral space
+      call fftw_mpi_execute_dft(forward_plan,w1,w1)
+      call fftw_mpi_execute_dft(forward_plan,w2,w2)
+      call fftw_mpi_execute_dft(forward_plan,w3,w3)
+      call fftw_mpi_execute_dft(forward_plan,rhocom,rhocom)
+      do k=1,km
+      do j=1,jm
+      do i=1,im
+        !
+        w1(i,j,k)=w1(i,j,k)/(1.d0*ia*ja*ka)
+        w2(i,j,k)=w2(i,j,k)/(1.d0*ia*ja*ka)
+        w3(i,j,k)=w3(i,j,k)/(1.d0*ia*ja*ka)
+        !
+        rhocom(i,j,k)=rhocom(i,j,k)/(1.d0*ia*ja*ka)
+        !
+      end do
+      end do
+      end do
+      !
+      !
+      !! wavenumber
+      allocate(k1(1:im,1:jm,1:km),k2(1:im,1:jm,1:km),k3(1:im,1:jm,1:km))
+      call GenerateWave(im,jm,km,ia,ja,ka,k0f,k1,k2,k3)
+      !
+      !! Imaginary number prepare
+      imag = CMPLX(0.d0,1.d0,8)
+      !
+      if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
+      !!!! Prepare l,alpha and others
+      call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
+      l_min = 2*pi/ia
+      allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
+      allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
+      !
+      call SGSscale_allocate(num_l,l_min,ratio_max,ratio_min,l_lim,num_alpha,num_alphamin,num_alphas,l_sqrtalpha,l_phi,dl_alpha)
+      !
+      if(mpirank==0)  print *, "Integrate point allocated"
+      !
+      if(mpirank==0) then
+        open(fh,file='pp/SGSintegral.info',form='formatted')
+        write(fh,"(2(A9,1x))")'NumL','NumAlpha'
+        write(fh,"(2(I9,1x))")num_l,num_alpha
+        write(fh,"(2(A9,1x),2(A15,1x))")'i','j','l_lim','l_sqrtalpha'
+        do i=1,num_l
+          do j=1,num_alphas(i)
+          ! Output file of rank information.
+            write(fh,"(2(I9,1x),2(E15.7E3,1x))")i,j,l_lim(i),l_sqrtalpha(i,j)
+          enddo
+        enddo
+        !
+        close(fh)
+        print*,' << SGSintegral.info ... done !'
+      endif
+      !
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      !!!!
+      allocate(Pi1S(1:num_l), Pi2S(1:num_l), Pi3S(1:num_l), Pi1W(1:num_l), Pi2W(1:num_l), Pi3W(1:num_l))
+      !
+      c_w1_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1_filted, w1_filted,  [imfftw,jmfftw,kmfftw])
+      c_w2_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2_filted, w2_filted,  [imfftw,jmfftw,kmfftw])
+      c_w3_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3_filted, w3_filted,  [imfftw,jmfftw,kmfftw])
+      c_rho_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rho_filted, rho_filted,[imfftw,jmfftw,kmfftw])
+      !
+      c_A11_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A11_filted, A11_filted,[imfftw,jmfftw,kmfftw])
+      c_A12_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A12_filted, A12_filted,[imfftw,jmfftw,kmfftw])
+      c_A13_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A13_filted, A13_filted,[imfftw,jmfftw,kmfftw])
+      c_A21_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A21_filted, A21_filted,[imfftw,jmfftw,kmfftw])
+      c_A22_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A22_filted, A22_filted,[imfftw,jmfftw,kmfftw])
+      c_A23_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A23_filted, A23_filted,[imfftw,jmfftw,kmfftw])
+      c_A31_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A31_filted, A31_filted,[imfftw,jmfftw,kmfftw])
+      c_A32_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A32_filted, A32_filted,[imfftw,jmfftw,kmfftw])
+      c_A33_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_A33_filted, A33_filted,[imfftw,jmfftw,kmfftw])
+      !
+      c_S1mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S1mm1_filted_l, S1mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S1mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S1mm2_filted_l, S1mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S1mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S1mm3_filted_l, S1mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S2mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S2mm1_filted_l, S2mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S2mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S2mm2_filted_l, S2mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S2mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S2mm3_filted_l, S2mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S3mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S3mm1_filted_l, S3mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S3mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S3mm2_filted_l, S3mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_S3mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_S3mm3_filted_l, S3mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W1mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W1mm1_filted_l, W1mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W1mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W1mm2_filted_l, W1mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W1mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W1mm3_filted_l, W1mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W2mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W2mm1_filted_l, W2mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W2mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W2mm2_filted_l, W2mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W2mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W2mm3_filted_l, W2mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W3mm1_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W3mm1_filted_l, W3mm1_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W3mm2_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W3mm2_filted_l, W3mm2_filted_l, [imfftw,jmfftw,kmfftw])
+      c_W3mm3_filted_l = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_W3mm3_filted_l, W3mm3_filted_l, [imfftw,jmfftw,kmfftw])
+      !
+      allocate(All_filted(1:im,1:jm,1:km),&
+              S11_filted(1:im,1:jm,1:km),S12_filted(1:im,1:jm,1:km),S13_filted(1:im,1:jm,1:km),&
+              S21_filted(1:im,1:jm,1:km),S22_filted(1:im,1:jm,1:km),S23_filted(1:im,1:jm,1:km),&
+              S31_filted(1:im,1:jm,1:km),S32_filted(1:im,1:jm,1:km),S33_filted(1:im,1:jm,1:km),&
+              W12_filted(1:im,1:jm,1:km),W21_filted(1:im,1:jm,1:km),&
+              W13_filted(1:im,1:jm,1:km),W31_filted(1:im,1:jm,1:km),&
+              W23_filted(1:im,1:jm,1:km),W32_filted(1:im,1:jm,1:km))
+      !
+      c_termSS_11 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_11, termSS_11, [imfftw,jmfftw,kmfftw])
+      c_termSS_12 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_12, termSS_12, [imfftw,jmfftw,kmfftw])
+      c_termSS_13 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_13, termSS_13, [imfftw,jmfftw,kmfftw])
+      c_termSS_21 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_21, termSS_21, [imfftw,jmfftw,kmfftw])
+      c_termSS_22 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_22, termSS_22, [imfftw,jmfftw,kmfftw])
+      c_termSS_23 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_23, termSS_23, [imfftw,jmfftw,kmfftw])
+      c_termSS_31 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_31, termSS_31, [imfftw,jmfftw,kmfftw])
+      c_termSS_32 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_32, termSS_32, [imfftw,jmfftw,kmfftw])
+      c_termSS_33 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termSS_33, termSS_33, [imfftw,jmfftw,kmfftw])
+      c_termWW_11 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_11, termWW_11, [imfftw,jmfftw,kmfftw])
+      c_termWW_12 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_12, termWW_12, [imfftw,jmfftw,kmfftw])
+      c_termWW_13 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_13, termWW_13, [imfftw,jmfftw,kmfftw])
+      c_termWW_21 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_21, termWW_21, [imfftw,jmfftw,kmfftw])
+      c_termWW_22 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_22, termWW_22, [imfftw,jmfftw,kmfftw])
+      c_termWW_23 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_23, termWW_23, [imfftw,jmfftw,kmfftw])
+      c_termWW_31 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_31, termWW_31, [imfftw,jmfftw,kmfftw])
+      c_termWW_32 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_32, termWW_32, [imfftw,jmfftw,kmfftw])
+      c_termWW_33 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWW_33, termWW_33, [imfftw,jmfftw,kmfftw])
+      c_termWS_11 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_11, termWS_11, [imfftw,jmfftw,kmfftw])
+      c_termWS_12 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_12, termWS_12, [imfftw,jmfftw,kmfftw])
+      c_termWS_13 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_13, termWS_13, [imfftw,jmfftw,kmfftw])
+      c_termWS_21 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_21, termWS_21, [imfftw,jmfftw,kmfftw])
+      c_termWS_22 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_22, termWS_22, [imfftw,jmfftw,kmfftw])
+      c_termWS_23 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_23, termWS_23, [imfftw,jmfftw,kmfftw])
+      c_termWS_31 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_31, termWS_31, [imfftw,jmfftw,kmfftw])
+      c_termWS_32 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_32, termWS_32, [imfftw,jmfftw,kmfftw])
+      c_termWS_33 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termWS_33, termWS_33, [imfftw,jmfftw,kmfftw])
+      !
+      ! c_term2    = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term2,    term2,    [imfftw,jmfftw,kmfftw])
+      ! c_term3_11 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_11, term3_11, [imfftw,jmfftw,kmfftw])
+      ! c_term3_12 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_12, term3_12, [imfftw,jmfftw,kmfftw])
+      ! c_term3_13 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_13, term3_13, [imfftw,jmfftw,kmfftw])
+      ! c_term3_21 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_21, term3_21, [imfftw,jmfftw,kmfftw])
+      ! c_term3_22 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_22, term3_22, [imfftw,jmfftw,kmfftw])
+      ! c_term3_23 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_23, term3_23, [imfftw,jmfftw,kmfftw])
+      ! c_term3_31 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_31, term3_31, [imfftw,jmfftw,kmfftw])
+      ! c_term3_32 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_32, term3_32, [imfftw,jmfftw,kmfftw])
+      ! c_term3_33 = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term3_33, term3_33, [imfftw,jmfftw,kmfftw])
+      ! c_term5    = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term5,    term5,    [imfftw,jmfftw,kmfftw])
+      ! c_term7    = fftw_alloc_complex(alloc_local)
+      ! call c_f_pointer(c_term7,    term7,    [imfftw,jmfftw,kmfftw])
+      !
+      !
+      Pi1S =0.d0
+      Pi2S =0.d0
+      Pi3S =0.d0
+      Pi1W =0.d0
+      Pi2W =0.d0
+      Pi3W =0.d0
+      !
+      if(mpirank==0)  print *, "Array allocated and initialized"
+      !
+      do m=1,num_l
+        !
+        !!!!!! Filter to get Sij filted by l
+        if(mpirank==0)  print *, '* l = ', l_lim(m) ,' at', m, '/', num_l
+        !
+        if(mpirank == 0) then
+          write(mname,'(i4.4)')m
+          if (thefilenumb .ne. 0) then
+            outfilename2 = 'pp/SGS_ET_precise_'//stepname//'_'//mname//'.dat'
+          else
+            outfilename2 = 'pp/SGS_ET_precise_'//mname//'.dat'
+          endif
+          call listinit(filename=outfilename2,handle=hand_b, &
+                      firstline='nstep time sqrtalpha pi1S pi2S pi3S pi1W pi2W pi3W')
+        endif
+        !
+        !!!! Velocity Favre average and density average
+        ! After this bloc, w1_filted is (rho*u1)_filted in spectral space
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          Gl = exp(-(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)*l_lim(m)**2/2.d0) ! Filtre scale :l
+          !
+          w1_filted(i,j,k)    = w1(i,j,k)    *Gl
+          w2_filted(i,j,k)    = w2(i,j,k)    *Gl
+          w3_filted(i,j,k)    = w3(i,j,k)    *Gl
+          !
+          rho_filted(i,j,k)   = rhocom(i,j,k)*Gl
+        enddo
+        enddo
+        enddo
+        !
+        ! After this bloc, w1_filted is (rho*u1)_filted in physical space
+        call fftw_mpi_execute_dft(backward_plan,w1_filted,w1_filted)
+        call fftw_mpi_execute_dft(backward_plan,w2_filted,w2_filted)
+        call fftw_mpi_execute_dft(backward_plan,w3_filted,w3_filted)
+        call fftw_mpi_execute_dft(backward_plan,rho_filted,rho_filted)
+        !
+        ! After this bloc, w1_filted is u1_filted in physical space
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          w1_filted(i,j,k) = w1_filted(i,j,k)/rho_filted(i,j,k)
+          w2_filted(i,j,k) = w2_filted(i,j,k)/rho_filted(i,j,k)
+          w3_filted(i,j,k) = w3_filted(i,j,k)/rho_filted(i,j,k)
+        enddo
+        enddo
+        enddo
+        !
+        ! After this bloc, w1_filted is u1_filted in fourier space, A11_filted is A11_filted in fourier space
+        call fftw_mpi_execute_dft(forward_plan,w1_filted,w1_filted)
+        call fftw_mpi_execute_dft(forward_plan,w2_filted,w2_filted)
+        call fftw_mpi_execute_dft(forward_plan,w3_filted,w3_filted)
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          !
+          w1_filted(i,j,k)  = w1_filted(i,j,k)/(1.d0*ia*ja*ka)
+          w2_filted(i,j,k)  = w2_filted(i,j,k)/(1.d0*ia*ja*ka)
+          w3_filted(i,j,k)  = w3_filted(i,j,k)/(1.d0*ia*ja*ka)
+          !
+          A11_filted(i,j,k) = imag*w1_filted(i,j,k)*k1(i,j,k)
+          A21_filted(i,j,k) = imag*w2_filted(i,j,k)*k1(i,j,k)
+          A31_filted(i,j,k) = imag*w3_filted(i,j,k)*k1(i,j,k)
+          A12_filted(i,j,k) = imag*w1_filted(i,j,k)*k2(i,j,k)
+          A22_filted(i,j,k) = imag*w2_filted(i,j,k)*k2(i,j,k)
+          A32_filted(i,j,k) = imag*w3_filted(i,j,k)*k2(i,j,k)
+          A13_filted(i,j,k) = imag*w1_filted(i,j,k)*k3(i,j,k)
+          A23_filted(i,j,k) = imag*w2_filted(i,j,k)*k3(i,j,k)
+          A33_filted(i,j,k) = imag*w3_filted(i,j,k)*k3(i,j,k)
+          !
+          All_filted(i,j,k) = (A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k))
+          !
+          S11_filted(i,j,k) = (A11_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+          S22_filted(i,j,k) = (A22_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+          S33_filted(i,j,k) = (A33_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+          S12_filted(i,j,k) = (A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
+          S21_filted(i,j,k) = S12_filted(i,j,k)
+          S13_filted(i,j,k) = (A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
+          S31_filted(i,j,k) = S13_filted(i,j,k)
+          S23_filted(i,j,k) = (A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
+          S32_filted(i,j,k) = S23_filted(i,j,k)
+          !
+          W12_filted(i,j,k) = (A12_filted(i,j,k) - A21_filted(i,j,k))*0.5d0
+          W21_filted(i,j,k) = -1.d0 * W12_filted(i,j,k)
+          W13_filted(i,j,k) = (A13_filted(i,j,k) - A31_filted(i,j,k))*0.5d0
+          W31_filted(i,j,k) = -1.d0 * W13_filted(i,j,k)
+          W23_filted(i,j,k) = (A23_filted(i,j,k) - A32_filted(i,j,k))*0.5d0
+          W32_filted(i,j,k) = -1.d0 * W23_filted(i,j,k)
+          !
+          ! 
+          !SAmmB_filted(i,j,k) = - k1(i,j,k)*KB(i,j,k)*SA1_filted(i,j,k) - k2(i,j,k)*KB(i,j,k)*SA2_filted(i,j,k) - k3(i,j,k)*KB(i,j,k)*SA3_filted(i,j,k)
+          !
+          S1mm1_filted_l(i,j,k) = - k1(i,j,k)*k1(i,j,k)*S11_filted(i,j,k) - k2(i,j,k)*k1(i,j,k)*S12_filted(i,j,k) &
+          - k3(i,j,k)*k1(i,j,k)*S13_filted(i,j,k)
+          S1mm2_filted_l(i,j,k) = - k1(i,j,k)*k2(i,j,k)*S11_filted(i,j,k) - k2(i,j,k)*k2(i,j,k)*S12_filted(i,j,k) &
+          - k3(i,j,k)*k2(i,j,k)*S13_filted(i,j,k)
+          S1mm3_filted_l(i,j,k) = - k1(i,j,k)*k3(i,j,k)*S11_filted(i,j,k) - k2(i,j,k)*k3(i,j,k)*S12_filted(i,j,k) &
+          - k3(i,j,k)*k3(i,j,k)*S13_filted(i,j,k)
+          S2mm1_filted_l(i,j,k) = - k1(i,j,k)*k1(i,j,k)*S21_filted(i,j,k) - k2(i,j,k)*k1(i,j,k)*S22_filted(i,j,k) &
+          - k3(i,j,k)*k1(i,j,k)*S23_filted(i,j,k)
+          S2mm2_filted_l(i,j,k) = - k1(i,j,k)*k2(i,j,k)*S21_filted(i,j,k) - k2(i,j,k)*k2(i,j,k)*S22_filted(i,j,k) &
+          - k3(i,j,k)*k2(i,j,k)*S23_filted(i,j,k)
+          S2mm3_filted_l(i,j,k) = - k1(i,j,k)*k3(i,j,k)*S21_filted(i,j,k) - k2(i,j,k)*k3(i,j,k)*S22_filted(i,j,k) &
+          - k3(i,j,k)*k3(i,j,k)*S23_filted(i,j,k)
+          S3mm1_filted_l(i,j,k) = - k1(i,j,k)*k1(i,j,k)*S31_filted(i,j,k) - k2(i,j,k)*k1(i,j,k)*S32_filted(i,j,k) &
+          - k3(i,j,k)*k1(i,j,k)*S33_filted(i,j,k)
+          S3mm2_filted_l(i,j,k) = - k1(i,j,k)*k2(i,j,k)*S31_filted(i,j,k) - k2(i,j,k)*k2(i,j,k)*S32_filted(i,j,k) &
+          - k3(i,j,k)*k2(i,j,k)*S33_filted(i,j,k)
+          S3mm3_filted_l(i,j,k) = - k1(i,j,k)*k3(i,j,k)*S31_filted(i,j,k) - k2(i,j,k)*k3(i,j,k)*S32_filted(i,j,k) &
+          - k3(i,j,k)*k3(i,j,k)*S33_filted(i,j,k)
+          !
+          W1mm1_filted_l(i,j,k) = - k2(i,j,k)*k1(i,j,k)*W12_filted(i,j,k) - k3(i,j,k)*k1(i,j,k)*W13_filted(i,j,k)
+          W1mm2_filted_l(i,j,k) = - k2(i,j,k)*k2(i,j,k)*W12_filted(i,j,k) - k3(i,j,k)*k2(i,j,k)*W13_filted(i,j,k)
+          W1mm3_filted_l(i,j,k) = - k2(i,j,k)*k3(i,j,k)*W12_filted(i,j,k) - k3(i,j,k)*k3(i,j,k)*W13_filted(i,j,k)
+          W2mm1_filted_l(i,j,k) = - k1(i,j,k)*k1(i,j,k)*W21_filted(i,j,k) - k3(i,j,k)*k1(i,j,k)*W23_filted(i,j,k)
+          W2mm2_filted_l(i,j,k) = - k1(i,j,k)*k2(i,j,k)*W21_filted(i,j,k) - k3(i,j,k)*k2(i,j,k)*W23_filted(i,j,k)
+          W2mm3_filted_l(i,j,k) = - k1(i,j,k)*k3(i,j,k)*W21_filted(i,j,k) - k3(i,j,k)*k3(i,j,k)*W23_filted(i,j,k)
+          W3mm1_filted_l(i,j,k) = - k1(i,j,k)*k1(i,j,k)*W31_filted(i,j,k) - k2(i,j,k)*k1(i,j,k)*W32_filted(i,j,k) 
+          W3mm2_filted_l(i,j,k) = - k1(i,j,k)*k2(i,j,k)*W31_filted(i,j,k) - k2(i,j,k)*k2(i,j,k)*W32_filted(i,j,k) 
+          W3mm3_filted_l(i,j,k) = - k1(i,j,k)*k3(i,j,k)*W31_filted(i,j,k) - k2(i,j,k)*k3(i,j,k)*W32_filted(i,j,k) 
+          !
+        end do
+        end do
+        end do
+        !
+        !
+        !
+        ! After this bloc, A11_filted is A11_filted in physical space
+        call fftw_mpi_execute_dft(backward_plan,S1mm1_filted_l,S1mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S1mm2_filted_l,S1mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S1mm3_filted_l,S1mm3_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S2mm1_filted_l,S2mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S2mm2_filted_l,S2mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S2mm3_filted_l,S2mm3_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S3mm1_filted_l,S3mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S3mm2_filted_l,S3mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,S3mm3_filted_l,S3mm3_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W1mm1_filted_l,W1mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W1mm2_filted_l,W1mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W1mm3_filted_l,W1mm3_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W2mm1_filted_l,W2mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W2mm2_filted_l,W2mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W2mm3_filted_l,W2mm3_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W3mm1_filted_l,W3mm1_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W3mm2_filted_l,W3mm2_filted_l)
+        call fftw_mpi_execute_dft(backward_plan,W3mm3_filted_l,W3mm3_filted_l)
+        !
+        !
+        if(mpirank==0)  print *, '** l filted!'
+        !
+        !!!!!! Begin integral
+        !
+        do n=1,num_alphas(m)
+          !
+          call date_and_time(values=value) 
+          !
+          if(mpirank==0)  print *, '** Integrate for ',n,'/',num_alphas(m),',now is ',&
+                                  value(5), ':', value(6),':',value(7)
+          !!!! Velocity Favre average and density average
+          ! After this bloc, w1_filted is (rho*u1)_filted in spectral space
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            Galpha = exp(-(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)*l_sqrtalpha(m,n)**2/2.d0) ! Filtre scale :sqrtalpha
+            w1_filted(i,j,k)  = w1(i,j,k)    *Galpha
+            w2_filted(i,j,k)  = w2(i,j,k)    *Galpha
+            w3_filted(i,j,k)  = w3(i,j,k)    *Galpha
+            rho_filted(i,j,k) = rhocom(i,j,k)*Galpha
+          enddo
+          enddo
+          enddo
+          !
+          ! After this bloc, w1_filted is (rho*u1)_filted in physical space
+          call fftw_mpi_execute_dft(backward_plan,w1_filted,w1_filted)
+          call fftw_mpi_execute_dft(backward_plan,w2_filted,w2_filted)
+          call fftw_mpi_execute_dft(backward_plan,w3_filted,w3_filted)
+          call fftw_mpi_execute_dft(backward_plan,rho_filted,rho_filted)
+          !
+          ! After this bloc, w1_filted is u1_filted in physical space
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            w1_filted(i,j,k) = w1_filted(i,j,k)/rho_filted(i,j,k)
+            w2_filted(i,j,k) = w2_filted(i,j,k)/rho_filted(i,j,k)
+            w3_filted(i,j,k) = w3_filted(i,j,k)/rho_filted(i,j,k)
+          enddo
+          enddo
+          enddo
+          !
+          ! After this bloc, w1_filted is u1_filted in fourier space, A11_filted is A11_filted in fourier space
+          call fftw_mpi_execute_dft(forward_plan,w1_filted,w1_filted)
+          call fftw_mpi_execute_dft(forward_plan,w2_filted,w2_filted)
+          call fftw_mpi_execute_dft(forward_plan,w3_filted,w3_filted)
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            !
+            w1_filted(i,j,k)  = w1_filted(i,j,k)/(1.d0*ia*ja*ka)
+            w2_filted(i,j,k)  = w2_filted(i,j,k)/(1.d0*ia*ja*ka)
+            w3_filted(i,j,k)  = w3_filted(i,j,k)/(1.d0*ia*ja*ka)
+            !
+            A11_filted(i,j,k) = imag*w1_filted(i,j,k)*k1(i,j,k)
+            A21_filted(i,j,k) = imag*w2_filted(i,j,k)*k1(i,j,k)
+            A31_filted(i,j,k) = imag*w3_filted(i,j,k)*k1(i,j,k)
+            A12_filted(i,j,k) = imag*w1_filted(i,j,k)*k2(i,j,k)
+            A22_filted(i,j,k) = imag*w2_filted(i,j,k)*k2(i,j,k)
+            A32_filted(i,j,k) = imag*w3_filted(i,j,k)*k2(i,j,k)
+            A13_filted(i,j,k) = imag*w1_filted(i,j,k)*k3(i,j,k)
+            A23_filted(i,j,k) = imag*w2_filted(i,j,k)*k3(i,j,k)
+            A33_filted(i,j,k) = imag*w3_filted(i,j,k)*k3(i,j,k)
+            !
+          end do
+          end do
+          end do
+          !
+          ! After this bloc, A11_filted is A11_filted in physical space
+          call fftw_mpi_execute_dft(backward_plan,A11_filted,A11_filted)
+          call fftw_mpi_execute_dft(backward_plan,A21_filted,A21_filted)
+          call fftw_mpi_execute_dft(backward_plan,A31_filted,A31_filted)
+          call fftw_mpi_execute_dft(backward_plan,A12_filted,A12_filted)
+          call fftw_mpi_execute_dft(backward_plan,A22_filted,A22_filted)
+          call fftw_mpi_execute_dft(backward_plan,A32_filted,A32_filted)
+          call fftw_mpi_execute_dft(backward_plan,A13_filted,A13_filted)
+          call fftw_mpi_execute_dft(backward_plan,A23_filted,A23_filted)
+          call fftw_mpi_execute_dft(backward_plan,A33_filted,A33_filted)
+          !
+          !
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            !
+            All_filted(i,j,k) = dreal(A11_filted(i,j,k)+A22_filted(i,j,k)+A33_filted(i,j,k))
+            !
+            S11_filted(i,j,k) = dreal(A11_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S22_filted(i,j,k) = dreal(A22_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S33_filted(i,j,k) = dreal(A33_filted(i,j,k)) - 1.d0/3.d0 * All_filted(i,j,k)
+            S12_filted(i,j,k) = dreal(A12_filted(i,j,k) + A21_filted(i,j,k))*0.5d0
+            S21_filted(i,j,k) = S12_filted(i,j,k)
+            S13_filted(i,j,k) = dreal(A13_filted(i,j,k) + A31_filted(i,j,k))*0.5d0
+            S31_filted(i,j,k) = S13_filted(i,j,k)
+            S23_filted(i,j,k) = dreal(A23_filted(i,j,k) + A32_filted(i,j,k))*0.5d0
+            S32_filted(i,j,k) = S23_filted(i,j,k)
+            !
+            W12_filted(i,j,k) = dreal(A12_filted(i,j,k)-A21_filted(i,j,k))*0.5d0
+            W21_filted(i,j,k) = -1.d0*W12_filted(i,j,k)
+            W13_filted(i,j,k) = dreal(A13_filted(i,j,k)-A31_filted(i,j,k))*0.5d0
+            W31_filted(i,j,k) = -1.d0*W13_filted(i,j,k)
+            W23_filted(i,j,k) = dreal(A23_filted(i,j,k)-A32_filted(i,j,k))*0.5d0
+            W32_filted(i,j,k) = -1.d0*W23_filted(i,j,k)
+            !
+          end do
+          end do
+          end do
+          !
+          !!!! Pi terms
+          !
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            rho_filted(i,j,k) = dreal(rho_filted(i,j,k))
+            !termSS_IJ = rho_filted*SI1_filted*SJ1_filted + rho_filted*SI2_filted*SJ2_filted + rho_filted*SI3_filted*SJ3_filted
+            termSS_11(i,j,k) = rho_filted(i,j,k)*S11_filted(i,j,k)*S11_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S12_filted(i,j,k)*S12_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S13_filted(i,j,k)*S13_filted(i,j,k)
+            termSS_12(i,j,k) = rho_filted(i,j,k)*S11_filted(i,j,k)*S21_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S12_filted(i,j,k)*S22_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S13_filted(i,j,k)*S23_filted(i,j,k)
+            termSS_13(i,j,k) = rho_filted(i,j,k)*S11_filted(i,j,k)*S31_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S12_filted(i,j,k)*S32_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S13_filted(i,j,k)*S33_filted(i,j,k)
+            termSS_21(i,j,k) = rho_filted(i,j,k)*S21_filted(i,j,k)*S11_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S22_filted(i,j,k)*S12_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S23_filted(i,j,k)*S13_filted(i,j,k)
+            termSS_22(i,j,k) = rho_filted(i,j,k)*S21_filted(i,j,k)*S21_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S22_filted(i,j,k)*S22_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S23_filted(i,j,k)*S23_filted(i,j,k)
+            termSS_23(i,j,k) = rho_filted(i,j,k)*S21_filted(i,j,k)*S31_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S22_filted(i,j,k)*S32_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S23_filted(i,j,k)*S33_filted(i,j,k)
+            termSS_31(i,j,k) = rho_filted(i,j,k)*S31_filted(i,j,k)*S11_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S32_filted(i,j,k)*S12_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S33_filted(i,j,k)*S13_filted(i,j,k)
+            termSS_32(i,j,k) = rho_filted(i,j,k)*S31_filted(i,j,k)*S21_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S32_filted(i,j,k)*S22_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S33_filted(i,j,k)*S23_filted(i,j,k)
+            termSS_33(i,j,k) = rho_filted(i,j,k)*S31_filted(i,j,k)*S31_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S32_filted(i,j,k)*S32_filted(i,j,k) + &
+                              rho_filted(i,j,k)*S33_filted(i,j,k)*S33_filted(i,j,k)
+            ! 
+            ! ! term2 
+            ! term2(i,j,k) =  rho_filted(i,j,k)*S11_filted(i,j,k)*S11_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S12_filted(i,j,k)*S12_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S13_filted(i,j,k)*S13_filted(i,j,k)+& ! i=1,k=1,2,3
+            !                 rho_filted(i,j,k)*S21_filted(i,j,k)*S21_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S22_filted(i,j,k)*S22_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S23_filted(i,j,k)*S23_filted(i,j,k)+& ! i=2,k=1,2,3
+            !                 rho_filted(i,j,k)*S31_filted(i,j,k)*S31_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S32_filted(i,j,k)*S32_filted(i,j,k)+&
+            !                 rho_filted(i,j,k)*S33_filted(i,j,k)*S33_filted(i,j,k) ! i=3,k=1,2,3
+            ! !
+            ! ! term3_IJ = rho_filted*All_filted*SIJ_filted
+            ! term3_11(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S11_filted(i,j,k)
+            ! term3_12(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S12_filted(i,j,k)
+            ! term3_13(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S13_filted(i,j,k)
+            ! !
+            ! term3_21(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S21_filted(i,j,k)
+            ! term3_22(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S22_filted(i,j,k)
+            ! term3_23(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S23_filted(i,j,k)
+            ! !
+            ! term3_31(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S31_filted(i,j,k)
+            ! term3_32(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S32_filted(i,j,k)
+            ! term3_33(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*S33_filted(i,j,k)
+            !
+            !termWW_IJ = rho_filted*WI1_filted*W1J_filted+rho_filted*WI2_filted*W2J_filted + &
+            !rho_filted*WI3_filted*W3J_filted 
+            termWW_11(i,j,k) = rho_filted(i,j,k)*W12_filted(i,j,k)*W21_filted(i,j,k) + &
+                              rho_filted(i,j,k)*W13_filted(i,j,k)*W31_filted(i,j,k) 
+            termWW_21(i,j,k) = rho_filted(i,j,k)*W23_filted(i,j,k)*W31_filted(i,j,k) 
+            termWW_31(i,j,k) = rho_filted(i,j,k)*W32_filted(i,j,k)*W21_filted(i,j,k)
+            !
+            termWW_12(i,j,k) = rho_filted(i,j,k)*W13_filted(i,j,k)*W32_filted(i,j,k) 
+            termWW_22(i,j,k) = rho_filted(i,j,k)*W21_filted(i,j,k)*W12_filted(i,j,k) + &
+                              rho_filted(i,j,k)*W23_filted(i,j,k)*W32_filted(i,j,k) 
+            termWW_32(i,j,k) = rho_filted(i,j,k)*W31_filted(i,j,k)*W12_filted(i,j,k)
+            !
+            termWW_13(i,j,k) = rho_filted(i,j,k)*W12_filted(i,j,k)*W23_filted(i,j,k)
+            termWW_23(i,j,k) = rho_filted(i,j,k)*W21_filted(i,j,k)*W13_filted(i,j,k)
+            termWW_33(i,j,k) = rho_filted(i,j,k)*W31_filted(i,j,k)*W13_filted(i,j,k) + &
+                              rho_filted(i,j,k)*W32_filted(i,j,k)*W23_filted(i,j,k)
+            !
+            ! ! term5
+            ! term5(i,j,k) = 2.d0*rho_filted(i,j,k)*(W12_filted(i,j,k)*W21_filted(i,j,k) + &
+            !                 W13_filted(i,j,k)*W31_filted(i,j,k) + W23_filted(i,j,k)*W32_filted(i,j,k))
+            !
+            !termWS_IJ= rho_filted*(S1J_filted*WI1_filted-SI1_filted*W1J_filted) + &
+            !          rho_filted*(S2J_filted*WI2_filted-SI2_filted*W2J_filted) + &
+            !          rho_filted*(S3J_filted*WI3_filted-SI3_filted*W3J_filted)
+            termWS_11(i,j,k)= rho_filted(i,j,k)*S21_filted(i,j,k)*W12_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S12_filted(i,j,k)*W21_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S31_filted(i,j,k)*W13_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S13_filted(i,j,k)*W31_filted(i,j,k)
+            termWS_21(i,j,k)= rho_filted(i,j,k)*S11_filted(i,j,k)*W21_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S22_filted(i,j,k)*W21_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S31_filted(i,j,k)*W23_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S23_filted(i,j,k)*W31_filted(i,j,k)
+            termWS_31(i,j,k)= rho_filted(i,j,k)*S11_filted(i,j,k)*W31_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S21_filted(i,j,k)*W32_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S32_filted(i,j,k)*W21_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S33_filted(i,j,k)*W31_filted(i,j,k) 
+            !
+            termWS_12(i,j,k)=-rho_filted(i,j,k)*S11_filted(i,j,k)*W12_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S22_filted(i,j,k)*W12_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S32_filted(i,j,k)*W13_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S13_filted(i,j,k)*W32_filted(i,j,k)
+            termWS_22(i,j,k)= rho_filted(i,j,k)*S12_filted(i,j,k)*W21_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S21_filted(i,j,k)*W12_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S32_filted(i,j,k)*W23_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S23_filted(i,j,k)*W32_filted(i,j,k)
+            termWS_32(i,j,k)= rho_filted(i,j,k)*S12_filted(i,j,k)*W31_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S31_filted(i,j,k)*W12_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S22_filted(i,j,k)*W32_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S33_filted(i,j,k)*W32_filted(i,j,k)
+            !
+            termWS_13(i,j,k)=-rho_filted(i,j,k)*S11_filted(i,j,k)*W13_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S23_filted(i,j,k)*W12_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S12_filted(i,j,k)*W23_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S33_filted(i,j,k)*W13_filted(i,j,k)
+            termWS_23(i,j,k)= rho_filted(i,j,k)*S13_filted(i,j,k)*W21_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S21_filted(i,j,k)*W13_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S22_filted(i,j,k)*W23_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S33_filted(i,j,k)*W23_filted(i,j,k)
+            termWS_33(i,j,k)= rho_filted(i,j,k)*S13_filted(i,j,k)*W31_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S31_filted(i,j,k)*W13_filted(i,j,k) &
+                            +rho_filted(i,j,k)*S23_filted(i,j,k)*W32_filted(i,j,k) &
+                            -rho_filted(i,j,k)*S32_filted(i,j,k)*W23_filted(i,j,k)
+            !
+            ! ! term7
+            ! term7(i,j,k) = rho_filted(i,j,k)*All_filted(i,j,k)*All_filted(i,j,k)
+          enddo
+          enddo
+          enddo
+          !
+          ! Do filter phi:
+          ! F -> product -> F inverse
+          call fftw_mpi_execute_dft(forward_plan,termSS_11,termSS_11)
+          call fftw_mpi_execute_dft(forward_plan,termSS_12,termSS_12)
+          call fftw_mpi_execute_dft(forward_plan,termSS_13,termSS_13)
+          call fftw_mpi_execute_dft(forward_plan,termSS_21,termSS_21)
+          call fftw_mpi_execute_dft(forward_plan,termSS_22,termSS_22)
+          call fftw_mpi_execute_dft(forward_plan,termSS_23,termSS_23)
+          call fftw_mpi_execute_dft(forward_plan,termSS_31,termSS_31)
+          call fftw_mpi_execute_dft(forward_plan,termSS_32,termSS_32)
+          call fftw_mpi_execute_dft(forward_plan,termSS_33,termSS_33)
+          !
+          call fftw_mpi_execute_dft(forward_plan,termWW_11,termWW_11)
+          call fftw_mpi_execute_dft(forward_plan,termWW_12,termWW_12)
+          call fftw_mpi_execute_dft(forward_plan,termWW_13,termWW_13)
+          call fftw_mpi_execute_dft(forward_plan,termWW_21,termWW_21)
+          call fftw_mpi_execute_dft(forward_plan,termWW_22,termWW_22)
+          call fftw_mpi_execute_dft(forward_plan,termWW_23,termWW_23)
+          call fftw_mpi_execute_dft(forward_plan,termWW_31,termWW_31)
+          call fftw_mpi_execute_dft(forward_plan,termWW_32,termWW_32)
+          call fftw_mpi_execute_dft(forward_plan,termWW_33,termWW_33)
+          !
+          call fftw_mpi_execute_dft(forward_plan,termWS_11,termWS_11)
+          call fftw_mpi_execute_dft(forward_plan,termWS_12,termWS_12)
+          call fftw_mpi_execute_dft(forward_plan,termWS_13,termWS_13)
+          call fftw_mpi_execute_dft(forward_plan,termWS_21,termWS_21)
+          call fftw_mpi_execute_dft(forward_plan,termWS_22,termWS_22)
+          call fftw_mpi_execute_dft(forward_plan,termWS_23,termWS_23)
+          call fftw_mpi_execute_dft(forward_plan,termWS_31,termWS_31)
+          call fftw_mpi_execute_dft(forward_plan,termWS_32,termWS_32)
+          call fftw_mpi_execute_dft(forward_plan,termWS_33,termWS_33)
+          ! !
+          ! call fftw_mpi_execute_dft(forward_plan,term2   ,term2   )
+          ! !
+          ! call fftw_mpi_execute_dft(forward_plan,term3_11,term3_11)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_12,term3_12)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_13,term3_13)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_21,term3_21)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_22,term3_22)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_23,term3_23)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_31,term3_31)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_32,term3_32)
+          ! call fftw_mpi_execute_dft(forward_plan,term3_33,term3_33)
+          ! !
+          ! call fftw_mpi_execute_dft(forward_plan,term5   ,term5   )
+          ! !
+          ! call fftw_mpi_execute_dft(forward_plan,term7   ,term7   )
+          !
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            Gphi = exp(-(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2)*l_phi(m,n)**2/2.d0) ! Filtre scale :phi
+            termSS_11(i,j,k) = termSS_11(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_12(i,j,k) = termSS_12(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_13(i,j,k) = termSS_13(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_21(i,j,k) = termSS_21(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_22(i,j,k) = termSS_22(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_23(i,j,k) = termSS_23(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_31(i,j,k) = termSS_31(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_32(i,j,k) = termSS_32(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termSS_33(i,j,k) = termSS_33(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            !
+            termWW_11(i,j,k) = termWW_11(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_12(i,j,k) = termWW_12(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_13(i,j,k) = termWW_13(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_21(i,j,k) = termWW_21(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_22(i,j,k) = termWW_22(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_23(i,j,k) = termWW_23(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_31(i,j,k) = termWW_31(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_32(i,j,k) = termWW_32(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWW_33(i,j,k) = termWW_33(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            !
+            termWS_11(i,j,k) = termWS_11(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_12(i,j,k) = termWS_12(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_13(i,j,k) = termWS_13(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_21(i,j,k) = termWS_21(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_22(i,j,k) = termWS_22(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_23(i,j,k) = termWS_23(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_31(i,j,k) = termWS_31(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_32(i,j,k) = termWS_32(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            termWS_33(i,j,k) = termWS_33(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! !
+            ! term2(i,j,k)    = term2(i,j,k)   *Gphi/(1.d0*ia*ja*ka)
+            ! !
+            ! term3_11(i,j,k) = term3_11(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_12(i,j,k) = term3_12(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_13(i,j,k) = term3_13(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_21(i,j,k) = term3_21(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_22(i,j,k) = term3_22(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_23(i,j,k) = term3_23(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_31(i,j,k) = term3_31(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_32(i,j,k) = term3_32(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! term3_33(i,j,k) = term3_33(i,j,k)*Gphi/(1.d0*ia*ja*ka)
+            ! !
+            ! term5(i,j,k)    = term5(i,j,k)   *Gphi/(1.d0*ia*ja*ka)
+            ! !
+            ! term7(i,j,k)    = term7(i,j,k)   *Gphi/(1.d0*ia*ja*ka)
+            !
+          enddo
+          enddo
+          enddo
+          !
+          !
+          call fftw_mpi_execute_dft(backward_plan,termSS_11,termSS_11)
+          call fftw_mpi_execute_dft(backward_plan,termSS_12,termSS_12)
+          call fftw_mpi_execute_dft(backward_plan,termSS_13,termSS_13)
+          call fftw_mpi_execute_dft(backward_plan,termSS_21,termSS_21)
+          call fftw_mpi_execute_dft(backward_plan,termSS_22,termSS_22)
+          call fftw_mpi_execute_dft(backward_plan,termSS_23,termSS_23)
+          call fftw_mpi_execute_dft(backward_plan,termSS_31,termSS_31)
+          call fftw_mpi_execute_dft(backward_plan,termSS_32,termSS_32)
+          call fftw_mpi_execute_dft(backward_plan,termSS_33,termSS_33)
+          !
+          call fftw_mpi_execute_dft(backward_plan,termWW_11,termWW_11)
+          call fftw_mpi_execute_dft(backward_plan,termWW_12,termWW_12)
+          call fftw_mpi_execute_dft(backward_plan,termWW_13,termWW_13)
+          call fftw_mpi_execute_dft(backward_plan,termWW_21,termWW_21)
+          call fftw_mpi_execute_dft(backward_plan,termWW_22,termWW_22)
+          call fftw_mpi_execute_dft(backward_plan,termWW_23,termWW_23)
+          call fftw_mpi_execute_dft(backward_plan,termWW_31,termWW_31)
+          call fftw_mpi_execute_dft(backward_plan,termWW_32,termWW_32)
+          call fftw_mpi_execute_dft(backward_plan,termWW_33,termWW_33)
+          !
+          call fftw_mpi_execute_dft(backward_plan,termWS_11,termWS_11)
+          call fftw_mpi_execute_dft(backward_plan,termWS_12,termWS_12)
+          call fftw_mpi_execute_dft(backward_plan,termWS_13,termWS_13)
+          call fftw_mpi_execute_dft(backward_plan,termWS_21,termWS_21)
+          call fftw_mpi_execute_dft(backward_plan,termWS_22,termWS_22)
+          call fftw_mpi_execute_dft(backward_plan,termWS_23,termWS_23)
+          call fftw_mpi_execute_dft(backward_plan,termWS_31,termWS_31)
+          call fftw_mpi_execute_dft(backward_plan,termWS_32,termWS_32)
+          call fftw_mpi_execute_dft(backward_plan,termWS_33,termWS_33)
+          !
+          ! call fftw_mpi_execute_dft(backward_plan,term2   ,term2   )
+          ! !
+          ! call fftw_mpi_execute_dft(backward_plan,term3_11,term3_11)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_12,term3_12)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_13,term3_13)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_21,term3_21)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_22,term3_22)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_23,term3_23)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_31,term3_31)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_32,term3_32)
+          ! call fftw_mpi_execute_dft(backward_plan,term3_33,term3_33)
+          ! =!
+          ! call fftw_mpi_execute_dft(backward_plan,term5   ,term5   )
+          ! !
+          ! call fftw_mpi_execute_dft(backward_plan,term7   ,term7   )
+          !
+          !
+          Pi1Sint = 0.d0
+          Pi2Sint = 0.d0
+          Pi3Sint = 0.d0
+          Pi1Wint = 0.d0
+          Pi2Wint = 0.d0
+          Pi3Wint = 0.d0
+          !
+          do k=1,km
+          do j=1,jm
+          do i=1,im
+            vxr_D1S = dreal(termSS_11(i,j,k) * S1mm1_filted_l(i,j,k) + &
+                          termSS_12(i,j,k) * S1mm2_filted_l(i,j,k) + &
+                          termSS_13(i,j,k) * S1mm3_filted_l(i,j,k) + &
+                          termSS_21(i,j,k) * S2mm1_filted_l(i,j,k) + &
+                          termSS_22(i,j,k) * S2mm2_filted_l(i,j,k) + &
+                          termSS_23(i,j,k) * S2mm3_filted_l(i,j,k) + &
+                          termSS_31(i,j,k) * S3mm1_filted_l(i,j,k) + &
+                          termSS_32(i,j,k) * S3mm2_filted_l(i,j,k) + &
+                          termSS_33(i,j,k) * S3mm3_filted_l(i,j,k))
+            Pi1S(m) = Pi1S(m) + vxr_D1S * dl_alpha(m,n)
+            Pi1Sint = Pi1Sint + vxr_D1S * dl_alpha(m,n)
+            !
+            vxr_D1W = dreal(termSS_11(i,j,k) * W1mm1_filted_l(i,j,k) + &
+                          termSS_12(i,j,k) * W1mm2_filted_l(i,j,k) + &
+                          termSS_13(i,j,k) * W1mm3_filted_l(i,j,k) + &
+                          termSS_21(i,j,k) * W2mm1_filted_l(i,j,k) + &
+                          termSS_22(i,j,k) * W2mm2_filted_l(i,j,k) + &
+                          termSS_23(i,j,k) * W2mm3_filted_l(i,j,k) + &
+                          termSS_31(i,j,k) * W3mm1_filted_l(i,j,k) + &
+                          termSS_32(i,j,k) * W3mm2_filted_l(i,j,k) + &
+                          termSS_33(i,j,k) * W3mm3_filted_l(i,j,k))
+            Pi1W(m) = Pi1W(m) + vxr_D1W * dl_alpha(m,n)
+            Pi1Wint = Pi1Wint + vxr_D1W * dl_alpha(m,n)
+            !
+            vxr_D2S = dreal(termWW_11(i,j,k) * S1mm1_filted_l(i,j,k) + &
+                    termWW_12(i,j,k) * S1mm2_filted_l(i,j,k) + &
+                    termWW_13(i,j,k) * S1mm3_filted_l(i,j,k) + &
+                    termWW_21(i,j,k) * S2mm1_filted_l(i,j,k) + &
+                    termWW_22(i,j,k) * S2mm2_filted_l(i,j,k) + &
+                    termWW_23(i,j,k) * S2mm3_filted_l(i,j,k) + &
+                    termWW_31(i,j,k) * S3mm1_filted_l(i,j,k) + &
+                    termWW_32(i,j,k) * S3mm2_filted_l(i,j,k) + &
+                    termWW_33(i,j,k) * S3mm3_filted_l(i,j,k))
+            Pi2S(m) = Pi2S(m) - vxr_D2S * dl_alpha(m,n) ! Negative because of W convention, this is not a mistake
+            Pi2Sint = Pi2Sint - vxr_D2S * dl_alpha(m,n) ! Negative because of W convention, this is not a mistake
+            !
+            vxr_D2W = dreal(termWW_11(i,j,k) * W1mm1_filted_l(i,j,k) + &
+                    termWW_12(i,j,k) * W1mm2_filted_l(i,j,k) + &
+                    termWW_13(i,j,k) * W1mm3_filted_l(i,j,k) + &
+                    termWW_21(i,j,k) * W2mm1_filted_l(i,j,k) + &
+                    termWW_22(i,j,k) * W2mm2_filted_l(i,j,k) + &
+                    termWW_23(i,j,k) * W2mm3_filted_l(i,j,k) + &
+                    termWW_31(i,j,k) * W3mm1_filted_l(i,j,k) + &
+                    termWW_32(i,j,k) * W3mm2_filted_l(i,j,k) + &
+                    termWW_33(i,j,k) * W3mm3_filted_l(i,j,k))
+            Pi2W(m) = Pi2W(m) - vxr_D2W * dl_alpha(m,n) ! Negative because of W convention, this is not a mistake
+            Pi2Wint = Pi2Wint - vxr_D2W * dl_alpha(m,n) ! Negative because of W convention, this is not a mistake
+            !
+            vxr_D3S = dreal(termWS_11(i,j,k) * S1mm1_filted_l(i,j,k) + &
+                          termWS_12(i,j,k) * S1mm2_filted_l(i,j,k) + &
+                          termWS_13(i,j,k) * S1mm3_filted_l(i,j,k) + &
+                          termWS_21(i,j,k) * S2mm1_filted_l(i,j,k) + &
+                          termWS_22(i,j,k) * S2mm2_filted_l(i,j,k) + &
+                          termWS_23(i,j,k) * S2mm3_filted_l(i,j,k) + &
+                          termWS_31(i,j,k) * S3mm1_filted_l(i,j,k) + &
+                          termWS_32(i,j,k) * S3mm2_filted_l(i,j,k) + &
+                          termWS_33(i,j,k) * S3mm3_filted_l(i,j,k))
+            Pi3S(m) = Pi3S(m) + vxr_D3S * dl_alpha(m,n)
+            Pi3Sint = Pi3Sint + vxr_D3S * dl_alpha(m,n)
+            !
+            vxr_D3W = dreal(termWS_11(i,j,k) * W1mm1_filted_l(i,j,k) + &
+                          termWS_12(i,j,k) * W1mm2_filted_l(i,j,k) + &
+                          termWS_13(i,j,k) * W1mm3_filted_l(i,j,k) + &
+                          termWS_21(i,j,k) * W2mm1_filted_l(i,j,k) + &
+                          termWS_22(i,j,k) * W2mm2_filted_l(i,j,k) + &
+                          termWS_23(i,j,k) * W2mm3_filted_l(i,j,k) + &
+                          termWS_31(i,j,k) * W3mm1_filted_l(i,j,k) + &
+                          termWS_32(i,j,k) * W3mm2_filted_l(i,j,k) + &
+                          termWS_33(i,j,k) * W3mm3_filted_l(i,j,k))
+            Pi3W(m) = Pi3W(m) + vxr_D3W * dl_alpha(m,n)
+            Pi3Wint = Pi3Wint + vxr_D3W * dl_alpha(m,n)
+            !
+            !
+            !
+            !
+            !
+            ! vxr_D2 = dreal(term2(i,j,k)) * All_filted_l(i,j,k)
+            ! Pi2(m) = Pi2(m) + vxr_D2 * dl_alpha(m,n) / 3.d0
+            ! Pi2int = Pi2int + vxr_D2 * dl_alpha(m,n) / 3.d0
+            ! vxr_D5 = dreal(term5(i,j,k)) * All_filted_l(i,j,k)
+            ! Pi5(m) = Pi5(m) - vxr_D5 * dl_alpha(m,n) / 3.d0
+            ! Pi5int = Pi5int - vxr_D5 * dl_alpha(m,n) / 3.d0
+            ! vxr_D3 = dreal(term3_11(i,j,k) * S1mm1_filted_l(i,j,k) + &
+            !         term3_12(i,j,k) * S1mm2_filted_l(i,j,k) + &
+            !         term3_13(i,j,k) * S1mm3_filted_l(i,j,k) + &
+            !         term3_21(i,j,k) * S2mm1_filted_l(i,j,k) + &
+            !         term3_22(i,j,k) * S2mm2_filted_l(i,j,k) + &
+            !         term3_23(i,j,k) * S2mm3_filted_l(i,j,k) + &
+            !         term3_31(i,j,k) * S3mm1_filted_l(i,j,k) + &
+            !         term3_32(i,j,k) * S3mm2_filted_l(i,j,k) + &
+            !         term3_33(i,j,k) * S3mm3_filted_l(i,j,k))
+            ! Pi3(m) = Pi3(m) + vxr_D3 * dl_alpha(m,n) * 2.d0/3.d0
+            ! Pi3int = Pi3int + vxr_D3 * dl_alpha(m,n) * 2.d0/3.d0
+            ! vxr_D7 = dreal(term7(i,j,k)) * All_filted_l(i,j,k)
+            ! Pi7(m) = Pi7(m) + vxr_D7 * dl_alpha(m,n) / 9.d0
+            ! Pi7int = Pi7int + vxr_D7 * dl_alpha(m,n) / 9.d0
+          enddo
+          enddo
+          enddo
+          !
+          Pi1Sint = psum(Pi1Sint) / (ia*ja*ka)
+          Pi2Sint = psum(Pi2Sint) / (ia*ja*ka)
+          Pi3Sint = psum(Pi3Sint) / (ia*ja*ka)
+          Pi1Wint = psum(Pi1Wint) / (ia*ja*ka)
+          Pi2Wint = psum(Pi2Wint) / (ia*ja*ka)
+          Pi3Wint = psum(Pi3Wint) / (ia*ja*ka)
+          !
+          if(mpirank==0) then
+            call listwrite(hand_b,l_sqrtalpha(m,n),Pi1Sint, Pi2Sint,Pi3Sint, &
+                          Pi1Wint, Pi2Wint,Pi3Wint)
+          endif
+          !
+          call mpi_barrier(mpi_comm_world,ierr)
+          !
+        enddo
+        !
+        Pi1S(m) =	 psum(Pi1S(m)) / (ia*ja*ka)
+        Pi2S(m) =	 psum(Pi2S(m)) / (ia*ja*ka)
+        Pi3S(m) =	 psum(Pi3S(m)) / (ia*ja*ka)
+        Pi1W(m) =	 psum(Pi1W(m)) / (ia*ja*ka)
+        Pi2W(m) =	 psum(Pi2W(m)) / (ia*ja*ka)
+        Pi3W(m) =	 psum(Pi3W(m)) / (ia*ja*ka)
+        !
+        !
+        !
+        if(mpirank==0) then
+          call listwrite(hand_b,0.d0, 0.d0, 0.d0, &
+                      0.d0, 0.d0, 0.d0,&
+                      0.d0)
+          call listwrite(hand_b,Pi1S(m)+Pi2S(m)+Pi3S(m)+Pi1W(m)+Pi2W(m)+Pi3W(m), & 
+          Pi1S(m), Pi2S(m),Pi3S(m), Pi1W(m), Pi2W(m),Pi3W(m))
+          !
+          close(unit=hand_b)
+          !
+          print *, '>>>>', outfilename2
+          !
+        endif
+        !
+        call mpi_barrier(mpi_comm_world,ierr)
+        !
+      enddo
+      if(mpirank==0)  print *, 'Job finish'
+      !
+      if(mpirank==0) then
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_ET_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_ET.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell pi1S pi2S pi3S pi1W pi2W pi3W')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m),Pi1S(m), Pi2S(m),&
+            Pi3S(m), Pi1W(m), Pi2W(m),Pi3W(m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+      endif
+      !
+      call fftw_destroy_plan(forward_plan)
+      call fftw_destroy_plan(backward_plan)
+      call fftw_mpi_cleanup()
+      call fftw_free(c_w1)
+      call fftw_free(c_w2)
+      call fftw_free(c_w3)
+      call fftw_free(c_rhocom)
+      call fftw_free(c_w1_filted)
+      call fftw_free(c_w2_filted)
+      call fftw_free(c_w3_filted)
+      call fftw_free(c_rho_filted)
+      call fftw_free(c_A11_filted)
+      call fftw_free(c_A12_filted)
+      call fftw_free(c_A13_filted)
+      call fftw_free(c_A21_filted)
+      call fftw_free(c_A22_filted)
+      call fftw_free(c_A23_filted)
+      call fftw_free(c_A31_filted)
+      call fftw_free(c_A32_filted)
+      call fftw_free(c_A33_filted)
+      call fftw_free(c_termSS_11)
+      call fftw_free(c_termSS_12)
+      call fftw_free(c_termSS_13)
+      call fftw_free(c_termSS_21)
+      call fftw_free(c_termSS_22)
+      call fftw_free(c_termSS_23)
+      call fftw_free(c_termSS_31)
+      call fftw_free(c_termSS_32)
+      call fftw_free(c_termSS_33)
+      ! call fftw_free(c_term2)
+      ! call fftw_free(c_term5)
+      ! call fftw_free(c_term7)
+      ! call fftw_free(c_term3_11)
+      ! call fftw_free(c_term3_12)
+      ! call fftw_free(c_term3_13)
+      ! call fftw_free(c_term3_21)
+      ! call fftw_free(c_term3_22)
+      ! call fftw_free(c_term3_23)
+      ! call fftw_free(c_term3_31)
+      ! call fftw_free(c_term3_32)
+      ! call fftw_free(c_term3_33)
+      call fftw_free(c_termWW_11)
+      call fftw_free(c_termWW_12)
+      call fftw_free(c_termWW_13)
+      call fftw_free(c_termWW_21)
+      call fftw_free(c_termWW_22)
+      call fftw_free(c_termWW_23)
+      call fftw_free(c_termWW_31)
+      call fftw_free(c_termWW_32)
+      call fftw_free(c_termWW_33)
+      call fftw_free(c_termWS_11)
+      call fftw_free(c_termWS_12)
+      call fftw_free(c_termWS_13)
+      call fftw_free(c_termWS_21)
+      call fftw_free(c_termWS_22)
+      call fftw_free(c_termWS_23)
+      call fftw_free(c_termWS_31)
+      call fftw_free(c_termWS_32)
+      call fftw_free(c_termWS_33)
+      call fftw_free(c_S1mm1_filted_l)
+      call fftw_free(c_S1mm2_filted_l)
+      call fftw_free(c_S1mm3_filted_l)
+      call fftw_free(c_S2mm1_filted_l)
+      call fftw_free(c_S2mm2_filted_l)
+      call fftw_free(c_S2mm3_filted_l)
+      call fftw_free(c_S3mm1_filted_l)
+      call fftw_free(c_S3mm2_filted_l)
+      call fftw_free(c_S3mm3_filted_l)
+      call fftw_free(c_W1mm1_filted_l)
+      call fftw_free(c_W1mm2_filted_l)
+      call fftw_free(c_W1mm3_filted_l)
+      call fftw_free(c_W2mm1_filted_l)
+      call fftw_free(c_W2mm2_filted_l)
+      call fftw_free(c_W2mm3_filted_l)
+      call fftw_free(c_W3mm1_filted_l)
+      call fftw_free(c_W3mm2_filted_l)
+      call fftw_free(c_W3mm3_filted_l)
+      call mpistop
+      deallocate(All_filted,S11_filted,S12_filted,S13_filted)
+      deallocate(S21_filted,S22_filted,S23_filted)
+      deallocate(S31_filted,S32_filted,S33_filted)
+      deallocate(W12_filted,W21_filted,W13_filted,W31_filted,W23_filted,W32_filted)
+      deallocate(k1,k2,k3)
+      deallocate(l_lim,l_sqrtalpha,l_phi,dl_alpha)
+      deallocate(Pi1S,Pi2S,Pi3S,Pi1W,Pi2W,Pi3W)
+      !
+    end subroutine SGSET3Dincom
     !
     subroutine SGSPi2Dint(thefilenumb)
       !
