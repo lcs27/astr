@@ -181,12 +181,12 @@ module userdefine
   subroutine udf_stalist
     !
     use constdef
-    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf, const6
+    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf, const6,lforce
     use commarray,only : vel,rho,tmp,dvel,q,vorbis,dvor,prs
     use fludyna,  only : miucal,sos
     use comsolver,only : solvrinit,grad
     use utility,  only : listinit,listwrite
-    use parallel, only : dataswap,psum,lio,pmax,pmin
+    use parallel, only : dataswap,psum,lio,pmax,pmin,jsize,ksize
     use constdef, only : pi,num1d3
     use fftwlink, only: fftwprepare_forcing
     !
@@ -219,7 +219,10 @@ module userdefine
     !!!!! File initialization
     if(linit) then
       !
-      call fftwprepare_forcing
+      if(lforce)then 
+        ! SPECIAL: lforce act as a flag to indicate whether enable spectra calculating
+        call fftwprepare_forcing
+      endif
       !
       if(lio) then
         call listinit(filename='log/stat2d_ener.dat',handle=hand_a, &
@@ -232,10 +235,13 @@ module userdefine
                       firstline='ns ti th o ps f kolmloc mfpath marms csavg nuav muav roav rho2nd w2drho ensdis')
         call listinit(filename='log/stat2d_scale.dat',handle=hand_e, &
                       firstline='ns ti ens macht skew ufluc Kol Tay ReTay Int ReInt EnsKol EnsLar ReLar EnsMicro ReMic')
-        call listinit(filename='log/stat2d_specall.dat',handle=hand_f, &
+        if(lforce)then
+          ! SPECIAL: lforce act as a flag to indicate whether enable spectra calculating
+          call listinit(filename='log/stat2d_specall.dat',handle=hand_f, &
                       firstline='ns ti Es Ed Pud k2Es k2Ed ')
-        call listinit(filename='log/stat2d_spect.dat',handle=hand_g, &
+          call listinit(filename='log/stat2d_spect.dat',handle=hand_g, &
                       firstline='ns ti k Es Ed Pud Ep')
+        endif
       endif
       !
       linit=.false.
@@ -523,7 +529,10 @@ module userdefine
     ReEnsMic  = sqrt(ens**3)/(ensdissp)
     !
     !!! Spectra calculation
-    call spec_stat(hand_f,hand_g)
+    if(lforce)then
+      ! SPECIAL: lforce act as a flag to indicate whether enable spectra calculating
+      call spec_stat(hand_f,hand_g)
+    endif
     !
     !
     if(lio) then 
@@ -636,7 +645,8 @@ module userdefine
     !
     dk = 1.d0
     !
-    allkmax=ceiling(real(sqrt(2.d0)/3*min(ia,ja))/dk)
+    allkmax = ceiling(real(sqrt(2.d0)/3*min(ia,ja))/dk)
+    allkmax = min(200,allkmax)
     !
     ! Allocate memory for the FFTW
     allocate(localvel1t(1:jm,1:im),localvel2t(1:jm,1:im),localpt(1:jm,1:im))
