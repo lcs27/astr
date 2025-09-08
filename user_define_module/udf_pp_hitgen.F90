@@ -26,7 +26,8 @@ module udf_pp_hitgen
     ! local data
     character(len=64) :: casefolder,inputfile,outputfile,viewmode, &
                           flowfieldfile, readmode,method
-    integer :: velmethod,thermomethod
+    integer :: velmethod,thermomethod,  filenumb
+    real(8) :: Esratio,Edratio
     !
     !
     if(mpirank == 0) then
@@ -72,6 +73,24 @@ module udf_pp_hitgen
       call bcast(thermomethod)
       !
       call hitgenmodifyp2d(thermomethod)
+      !
+    elseif(trim(readmode)=='Proj2D') then
+      !
+      if(mpirank == 0)then
+        print *, ' ** Proj2D mode'
+        call readkeyboad(inputfile) 
+        read(inputfile,'(i4)') filenumb
+        call readkeyboad(method)
+        read(method,'(F8.4)') Esratio
+        call readkeyboad(method)
+        read(method,'(F8.4)') Edratio
+        print *, ' ** Esratio = ', Esratio, 'Edratio = ', Edratio
+      endif
+      call bcast(filenumb)
+      call bcast(Esratio)
+      call bcast(Edratio)
+      !
+      call hitvelProj2D(filenumb,Esratio,Edratio)
       !
     elseif(trim(readmode)=='hitstat2D') then
       !
@@ -617,6 +636,200 @@ module udf_pp_hitgen
   !| The end of the subroutine hitgen2d_parallel.                      |
   !+-------------------------------------------------------------------+
   !
+  subroutine hitvelProj2D(thefilenumb,Esratio,Edratio)
+    !
+    use, intrinsic :: iso_c_binding
+    use readwrite, only : readgrid, readic, readinput
+    use fftwlink
+    use commvar,   only : gridfile,im,jm,km,ia,ja,ka,hm,Mach,Reynolds, &
+                          roinf,pinf,spcinf,nondimen,&
+                          ickmax,iomode,icurms,icsolenoidal,icdilatational
+    use bc,        only : twall
+    use commarray, only : vel,rho,tmp,prs,spc
+    use solver,    only : refcal
+    use parallel,  only : parallelini,mpi_ikgroup,mpirank, psum, pmax, &
+                          mpitag,mpiup,mpidown,mpi_comm_world,status,mpi_real8
+    use fludyna,   only : thermal
+    use hdf5io
+    use tecio
+    use solver,    only : refcal
+    include 'fftw3-mpi.f03'
+    !
+    real(8), intent(in) :: Esratio,Edratio
+    integer, intent(in) :: thefilenumb
+    character(len=128) :: infilename
+    character(len=4) :: stepname
+    integer :: i,j,n,clock,irandom,total_m,proc_m,m
+    real(8), allocatable, dimension(:,:) :: k1,k2
+    real(8) :: wn1, wn2, wna
+    complex(C_DOUBLE_COMPLEX) :: udspe, usspe
+    real(8) :: amplitude, urms, uav, vav
+    complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1c,u2c
+    type(C_PTR) :: foreward_plan, backward_plan, c_u1c, c_u2c
+    character(len=1) :: modeio
+    real(8), allocatable, dimension(:) :: sendjm,recvjm
+    !
+    call readinput
+    if(mpirank==0)  print *, " ** ia:",ia,",ja:",ja
+    !
+    call refcal
+    if(mpirank==0)  print*, ' ** refcal done!'
+    !
+    if(ka .ne. 0) stop 'Please use 3D'
+    modeio='h'
+    !
+    call fftw_mpi_init()
+    if(mpirank==0)  print *, " ** fftw_mpi initialized"
+    !
+    call mpisizedis_fftw
+    if(mpirank==0)  print*, ' ** mpisizedis & parapp done!'
+    !
+    call parallelini
+    if(mpirank==0)  print*, ' ** parallelini done!'
+    !
+    !
+    !
+    allocate(vel(0:im,0:jm,0:km,1:2), rho(0:im,0:jm,0:km))
+    allocate(tmp(0:im,0:jm,0:km), prs(0:im,0:jm,0:km))
+    if(mpirank==0)  print*, ' ** allocation finished!'
+    !
+    ! Generate field
+    !
+    if (thefilenumb > 0) then
+      write(stepname,'(i4.4)')thefilenumb
+      infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+    elseif(thefilenumb == 0) then
+      infilename='outdat/flowfield.'//modeio//'5'
+    elseif(thefilenumb == -1) then
+      infilename='datin/flowini2d.h5'
+    endif
+    !
+    call h5io_init(filename=infilename,mode='read')
+    !
+    call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+    call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+    call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+    call h5read(varname='p',  var=prs(0:im,0:jm,0:km),mode = modeio)
+    call h5read(varname='t',  var=tmp(0:im,0:jm,0:km),mode = modeio)
+    call h5io_end
+    if(mpirank==0)  print *, "** Field read finish!"
+    !
+    !! wavenumber generation
+    allocate(k1(1:im,1:jm),k2(1:im,1:jm))
+    call GenerateWave(im,jm,ia,ja,j0f,k1,k2)
+    !
+    !
+    !! complex speed allocation
+    c_u1c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u1c, u1c, [imfftw,jmfftw])
+    c_u2c = fftw_alloc_complex(alloc_local)
+    call c_f_pointer(c_u2c, u2c, [imfftw,jmfftw])
+    !
+    foreward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1c,u1c, MPI_COMM_WORLD, FFTW_FORWARD ,FFTW_MEASURE)
+    backward_plan = fftw_mpi_plan_dft_2d(jafftw,iafftw, u1c,u1c, MPI_COMM_WORLD, FFTW_BACKWARD,FFTW_MEASURE)
+    !
+    do j=1,jm
+    do i=1,im
+      u1c(i,j) = CMPLX(vel(i,j,0,1),0.d0,C_INTPTR_T)
+      u2c(i,j) = CMPLX(vel(i,j,0,2),0.d0,C_INTPTR_T)
+    end do
+    end do
+    !
+    call fftw_mpi_execute_dft(foreward_plan,u1c,u1c)
+    call fftw_mpi_execute_dft(foreward_plan,u2c,u2c)
+    !
+    !! half spectral generation
+    !
+    do j=1,jm
+    do i=1,im
+      !
+      u1c(i,j) = u1c(i,j) / dble(ia*ja)
+      u2c(i,j) = u2c(i,j) / dble(ia*ja)
+      !
+      wn1=dble(k1(i,j))
+      wn2=dble(k2(i,j))
+      wna=dsqrt(wn1**2+wn2**2)
+      if(wna < 0.5d0) then
+        u1c(i,j)=0.d0
+        u2c(i,j)=0.d0
+      else
+        usspe = u1c(i,j)*wn2/wna - u2c(i,j)*wn1/wna
+        udspe = u1c(i,j)*wn1/wna + u2c(i,j)*wn2/wna
+        !
+        u1c(i,j)=  usspe * wn2/wna * Esratio + udspe*wn1/wna * Edratio
+        u2c(i,j)= -usspe * wn1/wna * Esratio + udspe*wn2/wna * Edratio
+      end if
+    enddo
+    enddo
+    !
+    call mpi_barrier(mpi_comm_world,ierr)
+    !
+    !
+    if(mpirank==0)  print*, ' ** Field projected'
+    !
+    call fftw_mpi_execute_dft(backward_plan,u1c,u1c)
+    call fftw_mpi_execute_dft(backward_plan,u2c,u2c)
+    !
+    if(mpirank==0)  print*,' ** Inverse fft, project to physical space. '
+    !
+    !
+    do j=1,jm
+    do i=1,im
+      vel(i,j,0,1) = real(u1c(i,j),C_DOUBLE)
+      vel(i,j,0,2) = real(u2c(i,j),C_DOUBLE)
+    end do
+    end do
+    !
+    vel(0,1:jm,0,1)=vel(im,1:jm,0,1)
+    vel(0,1:jm,0,2)=vel(im,1:jm,0,2)
+    ! !
+    allocate(sendjm(0:im),recvjm(0:im))
+    !
+    sendjm(0:im) = vel(0:im,jm,0,1)
+    call mpi_sendrecv(sendjm,(im+1),mpi_real8,mpiup,mpitag,  &
+                      recvjm,(im+1),mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    vel(0:im,0,0,1) = recvjm(0:im)
+    !
+    sendjm(0:im) = vel(0:im,jm,0,2)
+    call mpi_sendrecv(sendjm,(im+1),mpi_real8,mpiup,mpitag,  &
+                      recvjm,(im+1),mpi_real8,mpidown,mpitag,   &
+                      mpi_comm_world,status,ierr)
+    mpitag=mpitag+1
+    vel(0:im,0,0,2) = recvjm(0:im)
+    !
+    !
+    if(mpirank == 0) print *, " ** Periodic boundary condition and parallel information transfer"
+    !
+    ! Output
+    call h5io_init(trim('datin/flowini2d.h5'),mode='write')
+    !
+    call h5wa2d_r8(varname='ro',var=rho(0:im,0:jm,0),  dir='k')
+    call h5wa2d_r8(varname='u1',var=vel(0:im,0:jm,0,1),dir='k')
+    call h5wa2d_r8(varname='u2',var=vel(0:im,0:jm,0,2),dir='k')
+    call h5wa2d_r8(varname='p', var=prs(0:im,0:jm,0),  dir='k')
+    call h5wa2d_r8(varname='t', var=tmp(0:im,0:jm,0),  dir='k')
+    !
+    call h5io_end
+    !
+    !
+    !
+    call fftw_destroy_plan(foreward_plan)
+    call fftw_destroy_plan(backward_plan)
+    call fftw_mpi_cleanup()
+    call fftw_free(c_u1c)
+    call fftw_free(c_u2c)
+    deallocate(k1,k2)
+    deallocate(vel)
+    deallocate(rho,tmp,prs)
+    deallocate(sendjm,recvjm)
+    ! 
+    !
+  end subroutine hitvelProj2D
+  !+-------------------------------------------------------------------+
+  !| The end of the subroutine hitvelProj2D.                      |
+  !+-------------------------------------------------------------------+
   !
   subroutine hitgenmodifyp2d(thermomethod)
     !

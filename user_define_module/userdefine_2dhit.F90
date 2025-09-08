@@ -181,7 +181,7 @@ module userdefine
   subroutine udf_stalist
     !
     use constdef
-    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf, const6,lforce
+    use commvar,  only : reynolds,lrestart,mach,ia,ja,ka,im,jm,km,roinf, const6,lforce, nstep, maxstep
     use commarray,only : vel,rho,tmp,dvel,q,vorbis,dvor,prs
     use fludyna,  only : miucal,sos
     use comsolver,only : solvrinit,grad
@@ -238,7 +238,7 @@ module userdefine
         if(lforce)then
           ! SPECIAL: lforce act as a flag to indicate whether enable spectra calculating
           call listinit(filename='log/stat2d_specall.dat',handle=hand_f, &
-                      firstline='ns ti Es Ed Pud k2Es k2Ed ')
+                      firstline='ns ti Es Ed Pud k2Es k2Ed Ep')
           call listinit(filename='log/stat2d_spect.dat',handle=hand_g, &
                       firstline='ns ti k Es Ed Pud Ep')
         endif
@@ -549,6 +549,18 @@ module userdefine
                     ReTay,Intlength,ReInt,EnsKol,EnsLarge,ReEnsLar,EnsMicro,&
                     ReEnsMic)
     endif
+    if(nstep==maxstep) then
+        close(hand_a)
+        close(hand_b)
+        close(hand_c)
+        close(hand_d)
+        close(hand_e)
+        if(lforce)then
+          close(hand_f)
+          close(hand_g)
+        endif
+        print*,' << log/flowstate.dat'
+    endif
     !
   end subroutine udf_stalist
   !+-------------------------------------------------------------------+
@@ -641,7 +653,7 @@ module userdefine
     real(8), allocatable, dimension(:) :: Es,Ed,Pud,kn,Ep
     integer, allocatable, dimension(:) :: Ecount
     integer :: i,j,ierr,allkmax,kOrdinal
-    real(8) :: Esspe, Edspe, Pudspe, k2Es, k2Ed
+    real(8) :: Esspe, Edspe, Pudspe, Epspe, k2Es, k2Ed
     !
     dk = 1.d0
     !
@@ -719,6 +731,7 @@ module userdefine
     Ecount = 0
     Edspe = 0.d0
     Esspe = 0.d0
+    Epspe = 0.d0
     Pudspe = 0.d0
     k2Es = 0.d0
     k2Ed = 0.d0
@@ -752,6 +765,7 @@ module userdefine
         endif
         Edspe = Edspe + roinf * (udspe*dconjg(udspe))/2
         Esspe = Esspe + roinf * (usspe*dconjg(usspe))/2
+        Epspe = Epspe + (pspe(i,j)*dconjg(pspe(i,j)))/2
         Pudspe = Pudspe + dimag(pspe(i,j)*dconjg(udspe)*kk)/2
         k2Es = k2Es + kk**2 * (usspe*dconjg(usspe))/2
         k2Ed = k2Ed + kk**2 * (udspe*dconjg(udspe))/2
@@ -770,12 +784,13 @@ module userdefine
     enddo
     Edspe = psum(Edspe)
     Esspe = psum(Esspe)
+    Epspe = psum(Epspe)
     Pudspe = psum(Pudspe)
     k2Es = psum(k2Es)
     k2Ed = psum(k2Ed)
     !
     if(lio) then
-      call listwrite(hand_f,Esspe,Edspe,Pudspe,k2Es,k2Ed)
+      call listwrite(hand_f,Esspe,Edspe,Pudspe,k2Es,k2Ed,Epspe)
       do i=1,allkmax
         call listwrite(hand_g,kn(i),Es(i),Ed(i),Pud(i),Ep(i))
       enddo
