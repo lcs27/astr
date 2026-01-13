@@ -129,7 +129,7 @@ module udf_pp_spectra
     character(len=4) :: stepname
     real(8) :: u1mean,u2mean,rhomean,prsmean
     complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1spe,u2spe,pspe,rou1spe,rou2spe
-    real(8), allocatable, dimension(:) :: ES,ED,Ecount,Eweak,Pud,kn,Erho
+    real(8), allocatable, dimension(:) :: ES,ED,Ecount,Eweak,Pud,Ep,kn,Erho
     complex(8), allocatable, dimension(:,:) :: usspe,udspe
     complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:) :: u1d,u2d,u1s,u2s
     ! real(8), allocatable, dimension(:,:) :: usspeR,usspeI,ucspeR,ucspeI
@@ -137,7 +137,7 @@ module udf_pp_spectra
     real(8), allocatable, dimension(:,:) :: k1,k2
     integer :: allkmax, kOrdinal
     real(8) :: kk,dk,lambda
-    real(8) :: Edspe,Esspe,Erhospe,Pudspe,Edphy,Esphy,Erhophy,udusphy,Edmax
+    real(8) :: Edspe,Esspe,Erhospe,Epspe,Pudspe,Edphy,Esphy,Erhophy,udusphy,Edmax
     real(8) :: ReUsConjUdmax,ReUsConjUdmin,k2Es,k2Ed,km1Ew
     character(len=128) :: outfilename
     integer :: hand_a,hand_b,hand_c
@@ -320,14 +320,15 @@ module udf_pp_spectra
     !
     !!!! Give S-C spectra and spectral energy
     !
-    allocate(ES(0:allkmax),ED(0:allkmax),Erho(0:allkmax),Ecount(0:allkmax))
-    allocate(Eweak(0:allkmax),Pud(0:allkmax),kn(0:allkmax))
+    allocate(ES(0:allkmax),ED(0:allkmax),Erho(0:allkmax),Ep(0:allkmax))
+    allocate(Eweak(0:allkmax),Pud(0:allkmax),kn(0:allkmax),Ecount(0:allkmax))
     !
     ES = 0.0d0
     ED = 0.0d0
     Ecount = 0.0d0
     Eweak = 0.0d0
     Erho = 0.0d0
+    Ep = 0.d0
     Pud = 0.0d0
     kn = 0.d0
     Edspe = 0.0d0
@@ -348,6 +349,7 @@ module udf_pp_spectra
             ED(kOrdinal) = ED(kOrdinal) + roinf * udspe(i,j)*conjg(udspe(i,j))*kk/2
             Eweak(kOrdinal) = Eweak(kOrdinal) + roinf * u1spe(i,j)*conjg(u1spe(i,j))*kk/2 + &
                             roinf * u2spe(i,j)*conjg(u2spe(i,j))*kk/2
+            Ep(kOrdinal) = Ep(kOrdinal) + pspe(i,j)*conjg(pspe(i,j))*kk/2
             Pud(kOrdinal) = Pud(kOrdinal) + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)*kk
             Erho(kOrdinal) = Erho(kOrdinal) + real(rou1spe(i,j)*conjg(u1spe(i,j))+ &
                               rou2spe(i,j)*conjg(u2spe(i,j)))*kk/2
@@ -357,6 +359,7 @@ module udf_pp_spectra
             ED(kOrdinal) = ED(kOrdinal) + roinf * udspe(i,j)*conjg(udspe(i,j))/2
             Eweak(kOrdinal) = Eweak(kOrdinal) + roinf * u1spe(i,j)*conjg(u1spe(i,j))/2 + &
                               roinf * u2spe(i,j)*conjg(u2spe(i,j))/2
+            Ep(kOrdinal) = Ep(kOrdinal) + pspe(i,j)*conjg(pspe(i,j))/2
             Pud(kOrdinal) = Pud(kOrdinal) + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)
             Erho(kOrdinal) = Erho(kOrdinal) + real(rou1spe(i,j)*conjg(u1spe(i,j))+ &
                               rou2spe(i,j)*conjg(u2spe(i,j)))/2
@@ -365,6 +368,7 @@ module udf_pp_spectra
         Edspe = Edspe + roinf * (udspe(i,j)*dconjg(udspe(i,j)))/2
         Esspe = Esspe + roinf * (usspe(i,j)*dconjg(usspe(i,j)))/2
         Erhospe = Erhospe + real(rou1spe(i,j)*dconjg(u1spe(i,j))+ rou2spe(i,j)*dconjg(u2spe(i,j)))/2
+        Epspe = Epspe + pspe(i,j)*dconjg(pspe(i,j))/2
         Pudspe = Pudspe + dimag(pspe(i,j)*dconjg(udspe(i,j))*kk)/2
         k2Es = k2Es + kk**2 * (usspe(i,j)*dconjg(usspe(i,j)))/2
         k2Ed = k2Ed + kk**2 * (udspe(i,j)*dconjg(udspe(i,j)))/2
@@ -379,6 +383,7 @@ module udf_pp_spectra
       ED(i) = psum(ED(i))
       Eweak(i) = psum(Eweak(i))
       Erho(i) = psum(Erho(i))
+      Ep(i) = psum(Ep(i))
       Pud(i) = psum(Pud(i))
       Ecount(i) = psum(Ecount(i))
       if((method == 1) .or. (method == 2))then
@@ -387,6 +392,7 @@ module udf_pp_spectra
           ES(i) = ES(i)/Ecount(i)*2*pi
           ED(i) = ED(i)/Ecount(i)*2*pi
           Eweak(i) = Eweak(i)/Ecount(i)*2*pi
+          Ep(i) = Ep(i)/Ecount(i)*2*pi
           Pud(i) = Pud(i)/Ecount(i)*2*pi
           kn(i) = kn(i)/Ecount(i)
           Erho(i) = Erho(i)/Ecount(i)*2*pi
@@ -399,6 +405,7 @@ module udf_pp_spectra
     Edspe = psum(Edspe)
     Esspe = psum(Esspe)
     Erhospe = psum(Erhospe)
+    Epspe = psum(Epspe)
     Pudspe = psum(Pudspe)
     k2Es = psum(k2Es)
     k2Ed = psum(k2Ed)
@@ -461,9 +468,9 @@ module udf_pp_spectra
       endif
       !
       call listinit(filename=outfilename,handle=hand_a, &
-                        firstline='nstep time k ES ED Eweak Erho Pud')
+                        firstline='nstep time k ES ED Eweak Erho Ep Pud')
       do i=0,allkmax
-        if(Ecount(i)>1e-3) call listwrite(hand_a,kn(i),ES(i),ED(i),Eweak(i),Erho(i),Pud(i))
+        if(Ecount(i)>1e-3) call listwrite(hand_a,kn(i),ES(i),ED(i),Eweak(i),Erho(i),Ep(i),Pud(i))
       end do
       !
       print*,' <<< '//outfilename//'... done.'
@@ -477,9 +484,9 @@ module udf_pp_spectra
       endif
       !
       call listinit(filename=outfilename,handle=hand_b, &
-            firstline='nstep time Edphy Esphy udusphy Eweakphy Erhophy Edspe Esspe Pudspe Eweakspe Erspe Edmax k2Es k2Ed IntL')
+            firstline='nstep time Edp Esp udusp Eweakp Erhop Eds Ess Eps Puds Eweaks Erspe Edmax k2Es k2Ed IntL')
       call listwrite(hand_b,Edphy,Esphy,udusphy,Edphy+Esphy+udusphy,Erhophy,&
-                    Edspe,Esspe,Pudspe,Edspe+Esspe,Erhospe,Edmax,k2Es,k2Ed,km1Ew/(Edspe+Esspe))
+                    Edspe,Esspe,Epspe,Pudspe,Edspe+Esspe,Erhospe,Edmax,k2Es,k2Ed,km1Ew/(Edspe+Esspe))
       !
       print*,' <<< '//outfilename//'... done.'
       !
@@ -522,8 +529,8 @@ module udf_pp_spectra
     call fftw_free(c_u2d)
     call fftw_free(c_u2s)
     call mpistop
-    
-    deallocate(ES,ED,Ecount,Eweak,Pud,kn,Erho)
+
+    deallocate(ES,ED,Ecount,Eweak,Pud,Ep,kn,Erho)
     deallocate(usspe,udspe)
     deallocate(u1dR,u2dR,u1sR,u2sR,udud,udus,usus,ReUsConjUd)
     deallocate(k1,k2)
@@ -533,6 +540,7 @@ module udf_pp_spectra
   !
   subroutine instantspectra3D(thefilenumb,method)
     !
+    ! TODO: Complete pspe
     !
     use, intrinsic :: iso_c_binding
     use readwrite, only : readinput
