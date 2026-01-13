@@ -116,7 +116,7 @@ module udf_pp_SGS
         elseif(trim(readmode)=='ET2D') then
           ! 
             if(mpirank == 0) then
-                print* ," ** Use SGSET3D"
+                print* ," ** Use SGSET2D"
                 call readkeyboad(inputfile) 
                 read(inputfile,'(i4)') filenumb
                 print*,' ** Filenumb: ',filenumb

@@ -188,11 +188,11 @@ module udf_pp_hitgen
     c_u3c = fftw_alloc_complex(alloc_local)
     call c_f_pointer(c_u3c, u3c, [imfftw,jmfftw,kmfftw])
     !
-    c_u1r = fftw_alloc_complex(2*alloc_local)
+    c_u1r = fftw_alloc_real(2*alloc_local)
     call c_f_pointer(c_u1r, u1r, [2*imfftw,jmfftw,kmfftw])
-    c_u2r = fftw_alloc_complex(2*alloc_local)
+    c_u2r = fftw_alloc_real(2*alloc_local)
     call c_f_pointer(c_u2r, u2r, [2*imfftw,jmfftw,kmfftw])
-    c_u3r = fftw_alloc_complex(2*alloc_local)
+    c_u3r = fftw_alloc_real(2*alloc_local)
     call c_f_pointer(c_u3r, u3r, [2*imfftw,jmfftw,kmfftw])
     !
     backward_plan = fftw_mpi_plan_dft_c2r_3d(kafftw,jafftw,iafftw, u1c,u1r, MPI_COMM_WORLD,FFTW_MEASURE)
@@ -470,13 +470,17 @@ module udf_pp_hitgen
     c_u2c = fftw_alloc_complex(alloc_local)
     call c_f_pointer(c_u2c, u2c, [imfftw,jmfftw])
     !
-    c_u1r = fftw_alloc_complex(2*alloc_local)
+    c_u1r = fftw_alloc_real(2*alloc_local)
     call c_f_pointer(c_u1r, u1r, [2*imfftw,jmfftw])
-    c_u2r = fftw_alloc_complex(2*alloc_local)
+    c_u2r = fftw_alloc_real(2*alloc_local)
     call c_f_pointer(c_u2r, u2r, [2*imfftw,jmfftw])
+    !
+    !
+    if(mpirank==0)  print*, ' ** complex allocated!'
     !
     backward_plan = fftw_mpi_plan_dft_c2r_2d(jafftw,iafftw, u1c,u1r, MPI_COMM_WORLD,FFTW_MEASURE)
     !
+    if(mpirank==0)  print*, ' ** plan created!'
     !! half spectral generation
     !
     do j=1,jm
