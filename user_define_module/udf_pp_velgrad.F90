@@ -78,6 +78,17 @@ module udf_pp_velgrad       !
             !
             call instantvortex2D(filenumb) 
             !
+        elseif(trim(readmode)=='theta3D') then
+            !
+            if(mpirank == 0) then
+              call readkeyboad(inputfile) 
+              read(inputfile,'(i4)') filenumb
+              print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            !
+            call instanttheta3D(filenumb) 
+            !
         else
         print* ,"Readmode is not defined!", readmode
         endif
@@ -87,7 +98,6 @@ module udf_pp_velgrad       !
     subroutine instantvelgradient(thefilenumb)
         !
         !
-        use singleton
         use readwrite, only : readinput
         use commvar,only : time,nstep,im,jm,km,hm,ia,ja,ka
         use commarray, only : x,vel,dvel
@@ -683,4 +693,296 @@ module udf_pp_velgrad       !
         !
       end subroutine velgradient_scale_lengths
       !
+      subroutine instanttheta3D(thefilenumb)
+        !
+        use, intrinsic :: iso_c_binding
+        use readwrite, only : readinput
+        use fftwlink
+        use commvar,only : time,nstep,im,jm,km,hm,ia,ja,ka
+        use commarray, only : x,vel,dvel
+        use hdf5io
+        use parallel,  only : dataswap, mpisizedis,parapp,parallelini,mpistop,mpirank,bcast, pmax, pmin, psum, lio
+        use comsolver, only : solvrinit,grad
+        use solver,    only : refcal
+        use geom,      only : geomcal
+        use gridgeneration
+        use utility,  only : listinit,listwrite
+        use udf_tool, only : GenerateWave, kint
+        include 'fftw3-mpi.f03'
+        !
+        ! arguments
+        integer,intent(in) :: thefilenumb
+        character(len=128) :: infilename
+        character(len=4) :: stepname
+        character(len=128) :: outfilename
+        character(len=1) :: modeio
+        integer,save :: hand_a
+        integer :: i,j,k
+        type(C_PTR) :: forward_plan, backward_plan, c_theta
+        real(8), allocatable, dimension(:,:,:) :: theta
+        complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: thetac
+        real(8), allocatable, dimension(:) :: Etheta, kn
+        real(8), allocatable, dimension(:,:,:) :: k1,k2,k3
+        integer :: allkmax,kOrdinal
+        real(8) :: kk,dk,lambda
+        real(8), allocatable, dimension(:,:) :: Sx,Sy
+        real(8), allocatable, dimension(:) :: r
+        integer :: n,p,in,jn,nend,pend
+        real(8) :: dtheta_x, dtheta_y
+        integer :: nbins,ibin
+        real(8) :: thetamax, thetamin, dtheta
+        real(8), allocatable, dimension(:) :: pdf, centers
+        !
+        call readinput
+        !
+        call refcal
+        if(mpirank==0) print*, '** refcal done!'
+        !
+        call fftw_mpi_init()
+        if(mpirank==0)  print *, "** fftw_mpi initialized"
+        !
+        call mpisizedis_fftw
+        if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+        !
+        call parapp
+        if(mpirank==0) print*, '** parapp done!'
+        !
+        call parallelini
+        if(mpirank==0) print*, '** parallelini done!'
+        !
+        !
+        modeio='h'
+        !
+        if(mpirank==0) print *,"ia:",ia,",ja:",ja, ",ka:", ka
+        !
+        allocate(x(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3) )
+        allocate(vel(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3))
+        allocate(dvel(0:im,0:jm,0:km,1:3,1:3))
+        !
+        call gridcube(2.d0*pi,2.d0*pi,2.d0*pi)
+        allocate(theta(0:im,0:jm,0:km))
+        !
+        call geomcal
+        !
+        if (thefilenumb .ne. 0) then
+          write(stepname,'(i4.4)')thefilenumb
+          infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+        else
+          infilename='outdat/flowfield.'//modeio//'5'
+        endif
+        !
+        call h5io_init(filename=infilename,mode='read')
+        !
+        call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+        call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+        call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+        call h5read(varname='time',var=time)
+        call h5read(varname='nstep',var=nstep)
+        !
+        call h5io_end
+        !
+        if(mpirank==0)  print *, "** Field read finish!"
+        !
+        call dataswap(vel)
+        !
+        if(mpirank==0) print *, "** Swap velocity"
+        !
+        call solvrinit
+        !
+        if(mpirank==0) print *, "** Calculate gradient"
+        !
+        dvel(:,:,:,1,:)=grad(vel(:,:,:,1))
+        dvel(:,:,:,2,:)=grad(vel(:,:,:,2))
+        dvel(:,:,:,3,:)=grad(vel(:,:,:,3))
+        !
+        
+        theta(:,:,:) = dvel(:,:,:,1,1) + dvel(:,:,:,2,2) + dvel(:,:,:,3,3)
+        
+        !
+        !
+        ! Calculate theta spectra
+        !
+        if(mpirank==0) print *, "** Spectra calculation"
+        dk = 1.d0
+        allkmax=ceiling(real(sqrt(2.d0)/3*min(min(ia,ja),ka))/dk)
+        !
+        if(mpirank==0)  print *, "**** knumber:",allkmax
+        !
+        !
+        allocate(k1(1:im,1:jm,1:km),k2(1:im,1:jm,1:km),k3(1:im,1:jm,1:km))
+        call GenerateWave(im,jm,km,ia,ja,ka,k0f,k1,k2,k3)
+
+        c_theta = fftw_alloc_complex(alloc_local)
+        call c_f_pointer(c_theta, thetac, [imfftw,jmfftw,kmfftw])
+        forward_plan = fftw_mpi_plan_dft_3d(kafftw, jafftw, iafftw, thetac,thetac, &
+                    MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          thetac(i,j,k)=CMPLX(theta(i,j,k),0.d0,C_INTPTR_T)
+        enddo
+        enddo
+        enddo
+        !
+        call fftw_mpi_execute_dft(forward_plan,thetac,thetac)
+        thetac(:,:,:)=thetac(:,:,:)/(1.d0*ia*ja*ka)
+        if(mpirank==0)  print *, "**** fft done"
+        !
+        allocate(Etheta(0:allkmax),kn(0:allkmax))
+        Etheta = 0.d0
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          kk=dsqrt(k1(i,j,k)**2+k2(i,j,k)**2+k3(i,j,k)**2+1.d-15)
+          kOrdinal = kint(kk,dk,3,lambda)
+          if (kOrdinal<=allkmax) then
+            Etheta(kOrdinal) = Etheta(kOrdinal) + thetac(i,j,k) * conjg(thetac(i,j,k))
+          endif
+        enddo
+        enddo
+        enddo
+        !
+        do i=0,allkmax
+          Etheta(i) = psum(Etheta(i))
+          kn(i) = real(i)
+        enddo
+        if(mpirank==0)  print *, "**** spectra calculation done"
+        !
+        if(mpirank == 0) then
+          if (thefilenumb > 0) then
+            outfilename = 'pp/Etheta'//stepname//'.dat'
+          elseif(thefilenumb == 0) then
+            outfilename = 'pp/Etheta.dat'
+          endif
+          !
+          call listinit(filename=outfilename,handle=hand_a, &
+                            firstline='nstep time k Etheta')
+          do i=0,allkmax
+            call listwrite(hand_a,kn(i),Etheta(i))
+          end do
+          print*,' <<< '//outfilename//'... done.'
+        endif
+        !
+        call fftw_destroy_plan(forward_plan)
+        call fftw_destroy_plan(backward_plan)
+        call fftw_free(c_theta)
+        deallocate(Etheta,kn,k1,k2,k3)
+        ! Calculate theta structure function
+        !
+        if(mpirank==0) print *, "** Theta structure function"
+        !
+        nend = ia/4
+        pend = 4
+        allocate(Sx(1:pend,1:nend),Sy(1:pend,1:nend),r(1:nend))
+        Sx = 0.d0
+        Sy = 0.d0
+        r = 0.d0
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          do n = 1,nend
+            in = mod(i+n,ia)
+            jn = mod(j+n,ja)
+            dtheta_x = theta(in,j,k) - theta(i,j,k)
+            dtheta_y = theta(i,jn,k) - theta(i,j,k)
+            do p=1,pend
+              Sx(p,n) = Sx(p,n) + dtheta_x ** p
+              Sy(p,n) = Sy(p,n) + dtheta_y ** p
+            enddo
+          enddo
+        enddo
+        enddo
+        enddo
+        !
+        do n = 1,nend
+          do p=1,pend
+            Sx(p,n) = psum(Sx(p,n))/(1.d0*ia*ja*ka)
+            Sy(p,n) = psum(Sy(p,n))/(1.d0*ia*ja*ka)
+          enddo
+          r(n) = 2*pi/real(ia,8) * n
+        enddo
+        !
+        if(mpirank==0)  print *, "** Structure function calculation done"
+        !
+        if(mpirank == 0) then
+          if (thefilenumb > 0) then
+            outfilename = 'pp/SFtheta'//stepname//'.dat'
+          elseif(thefilenumb == 0) then
+            outfilename = 'pp/SFtheta.dat'
+          endif
+          !
+          call listinit(filename=outfilename,handle=hand_a, &
+                            firstline='nstep time r Sx1 Sy1 Sx2 Sy2 Sx3 Sy3 Sx4 Sy4')
+          do n=1,nend
+            call listwrite(hand_a,r(n),Sx(1,n),Sy(1,n),Sx(2,n),Sy(2,n),Sx(3,n),Sy(3,n),Sx(4,n),Sy(4,n))
+          end do
+          print*,' <<< '//outfilename//'... done.'
+        endif
+        !
+        deallocate(Sx,Sy,r)
+        ! Calculate theta pdf
+        !
+        thetamax = 0.d0
+        thetamin = 0.d0
+        nbins = 200
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          if(thetamax<theta(i,j,k))then
+            thetamax = theta(i,j,k)
+          endif
+          if(thetamin>theta(i,j,k))then
+            thetamin = theta(i,j,k)
+          endif
+        enddo
+        enddo
+        enddo
+        !
+        thetamax = pmax(thetamax)
+        thetamin = pmin(thetamin)
+        dtheta = (thetamax - thetamin) / real(nbins-1,8)
+        !
+        allocate(pdf(1:nbins),centers(1:nbins))
+        !
+        pdf = 0.d0
+        centers = 0.d0
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+          ibin = int( (theta(i,j,k) - thetamin) / dtheta ) + 1
+          pdf(ibin) = pdf(ibin) + 1
+        enddo
+        enddo
+        enddo
+        !
+        do ibin = 1, nbins
+          centers(ibin) = thetamin + (real(ibin,8) - 0.5d0) * dtheta
+          pdf(ibin) = psum(pdf(ibin))/(1.d0*ia*ja*ka)/ dtheta
+        end do
+        !
+        if(mpirank==0)  print *, "** PDF calculation done"
+        !
+        if(mpirank == 0) then
+          if (thefilenumb > 0) then
+            outfilename = 'pp/pdftheta'//stepname//'.dat'
+          elseif(thefilenumb == 0) then
+            outfilename = 'pp/pdftheta.dat'
+          endif
+          !
+          call listinit(filename=outfilename,handle=hand_a, &
+                            firstline='nstep time center pdf')
+          do ibin=1,nbins
+            call listwrite(hand_a,centers(ibin),pdf(ibin))
+          end do
+          print*,' <<< '//outfilename//'... done.'
+        endif
+        !
+        deallocate(centers,pdf)
+        !
+        call fftw_mpi_cleanup()
+        call mpistop
+        !
+        deallocate(x,vel,dvel,theta)
+      end subroutine
 end module udf_pp_velgrad
