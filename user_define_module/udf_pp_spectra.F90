@@ -165,9 +165,9 @@ module udf_pp_spectra
     dk = 1.d0
     if(method==1)then
       lambda = 1.21d0
-      allkmax = ceiling(log(real(sqrt(2.d0)/3*min(ia,ja))/dk)/log(lambda))
+      allkmax = ceiling(log(real(1.d0/2.d0*min(ia,ja))/dk)/log(lambda))
     elseif((method == 2) .or. (method==3))then
-      allkmax=ceiling(real(sqrt(2.d0)/3*min(ia,ja))/dk)
+      allkmax = ceiling(real(1.d0/2.d0*min(ia,ja))/dk)
     endif
     !
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,"knumber:",allkmax
@@ -594,9 +594,9 @@ module udf_pp_spectra
     dk = 1.d0
     if(method==1)then
       lambda = 1.21d0
-      allkmax = ceiling(log(real(sqrt(2.d0)/3*min(min(ia,ja),ka))/dk)/log(lambda))
+      allkmax = ceiling(log(real(1.d0/2.d0*min(min(ia,ja),ka))/dk)/log(lambda))
     elseif((method == 2) .or. (method==3))then
-      allkmax=ceiling(real(sqrt(2.d0)/3*min(min(ia,ja),ka))/dk)
+      allkmax = ceiling(real(1.d0/2.d0*min(min(ia,ja),ka))/dk)
     endif
     !
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:", ka,"knumber:",allkmax
@@ -1058,7 +1058,7 @@ module udf_pp_spectra
     call fftw_mpi_init()
     if(mpirank==0)  print *, "fftw_mpi initialized"
     !
-    allkmax=ceiling(sqrt(2.d0)/3*min(ia,ja))
+    allkmax=ceiling(1.d0/2.d0*min(ia,ja))
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,"allkmax:",allkmax
     if(ka .ne. 0) stop 'Please use instantspectra3D'
     !
@@ -1221,7 +1221,7 @@ module udf_pp_spectra
     call fftw_mpi_init()
     if(mpirank==0)  print *, "fftw_mpi initialized"
     !
-    allkmax=ceiling(sqrt(2.d0)/3*min(min(ia,ja),ka))
+    allkmax=ceiling(1.d0/2.d0*min(min(ia,ja),ka))
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:", ka,"allkmax:",allkmax
     if(ka == 0) stop 'Please use instantspectra2D'
     !
@@ -1428,9 +1428,9 @@ module udf_pp_spectra
     !
     if(method==1)then
       lambda = 1.21d0
-      allkmax = ceiling(log(real(sqrt(2.d0)/3*min(ia,ja))/dk)/log(lambda))
+      allkmax = ceiling(log(real(1.d0/2.d0*min(ia,ja))/dk)/log(lambda))
     elseif((method == 2) .or. (method==3))then
-      allkmax=ceiling(real(sqrt(2.d0)/3*min(ia,ja))/dk)
+      allkmax = ceiling(real(1.d0/2.d0*min(ia,ja))/dk)
     endif
     !
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,"knumber:",allkmax
@@ -1972,9 +1972,9 @@ module udf_pp_spectra
     !
     if(method==1)then
       lambda = 1.21d0
-      allkmax = ceiling(log(real(sqrt(2.d0)/3*min(ia,ja,ka))/dk)/log(lambda))
+      allkmax = ceiling(log(real(1.d0/2.d0*min(ia,ja,ka))/dk)/log(lambda))
     elseif((method == 2) .or. (method==3))then
-      allkmax=ceiling(real(sqrt(2.d0)/3*min(ia,ja,ka))/dk)
+      allkmax = ceiling(real(1.d0/2.d0*min(ia,ja,ka))/dk)
     endif
     !
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:",ka,"knumber:",allkmax
@@ -2724,7 +2724,7 @@ module udf_pp_spectra
     call fftw_mpi_init()
     if(mpirank==0)  print *, "fftw_mpi initialized"
     !
-    allkmax=ceiling(sqrt(2.d0)/3*min(ia,ja))
+    allkmax=ceiling(1.d0/2.d0*min(ia,ja))
     if(mpirank==0)  print *, "ia:",ia,",ja:",ja,"allkmax:",allkmax
     if(ka .ne. 0) stop 'Please use skewness3D'
     !

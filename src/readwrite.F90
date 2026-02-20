@@ -1059,7 +1059,7 @@ module readwrite
         endif
         print*,"     Injecting energy at ",forcenum,"wavenumbers:"
         do i=1,forcenum
-          print*,i,") k= ", forcek(i), 'with proportion of Es = ', forcespes(i), 'and proportion of Ed=', forcesped(i)
+          print*,i,") k= ", forcek(i), 'alphas = ', forcespes(i), 'alphad=', forcesped(i)
         enddo
       endif
       !

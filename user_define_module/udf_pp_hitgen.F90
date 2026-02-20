@@ -1167,6 +1167,15 @@ module udf_pp_hitgen
         IniEnergDis = 0.d0
       endif
       !
+    case(7)
+      ! 
+      Ac = 1.d0
+      if(wnb<k0)then
+        IniEnergDis = Ac*((k0/wnb)**(5.d0/3.d0))
+      else
+        IniEnergDis = 0.d0
+      endif
+      !
     case default
       stop "Undefined IniEnergDis method"
     end select

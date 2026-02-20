@@ -12,7 +12,7 @@ module commarray
   implicit none
   !
   real(8),allocatable,dimension(:,:,:,:) :: x,q,qrhs,vel,spc,dtmp,     &
-                                            dgrid,vor,dvor, forcep
+                                            dgrid,vor,dvor, forcep, forcehyper
   real(8),allocatable,dimension(:,:,:) :: jacob,rho,prs,tmp,vorbis
   real(8),allocatable,dimension(:,:,:,:,:) :: dxi,dvel,dspc
   real(8),allocatable,dimension(:,:,:) :: bnorm_i0,bnorm_im,bnorm_j0,  &
@@ -119,6 +119,9 @@ module commarray
     !
     allocate( forcep(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),stat=lallo)
     if(lallo.ne.0) stop ' !! error at allocating forcep'
+    !
+    allocate( forcehyper(-hm:im+hm,-hm:jm+hm,-hm:km+hm,1:3),stat=lallo)
+    if(lallo.ne.0) stop ' !! error at allocating forcehyper'
     !
   end subroutine allocommarray
   !+-------------------------------------------------------------------+
