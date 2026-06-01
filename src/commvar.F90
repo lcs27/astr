@@ -183,7 +183,7 @@ module commvar
   real(8) :: icurms,icsolenoidal,icdilatational
   !
   logical :: lforce,lhyper,llinear
-  integer :: forcenum
+  integer :: forcenum, forcemethod
   !
   integer :: hypervisk
   real(8) :: hypervismiu,linearmiu,Kaddrate

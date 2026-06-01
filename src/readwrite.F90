@@ -990,7 +990,7 @@ module readwrite
     !
     use commvar,   only: ickmax,icurms,icsolenoidal,icdilatational,&
                           lforce,lhyper,llinear,forcenum,hypervisk,&
-                          hypervismiu,linearmiu,Kaddrate
+                          hypervismiu,linearmiu,Kaddrate,forcemethod
     use commarray, only: forcek,forcespes,forcesped
     use parallel,only: bcast
     !
@@ -1008,7 +1008,7 @@ module readwrite
       read(fh,'(////)')
       read(fh,*)ickmax,icurms,icsolenoidal,icdilatational
       read(fh,'(/)')
-      read(fh,*)lforce,lhyper,llinear
+      read(fh,*)lforce,forcemethod,lhyper,llinear
       read(fh,'(/)')
     endif
     call bcast(ickmax)
@@ -1016,6 +1016,7 @@ module readwrite
     call bcast(icsolenoidal)
     call bcast(icdilatational)
     call bcast(lforce)
+    call bcast(forcemethod)
     call bcast(lhyper)
     call bcast(llinear)
     !
@@ -1037,23 +1038,40 @@ module readwrite
         call bcast(linearmiu)
       endif
       !
-      if(mpirank==0)then
-        read(fh,*)forcenum,Kaddrate
-        read(fh,'(/)')
-      endif
-      call bcast(forcenum)
-      call bcast(Kaddrate)
-      !
-      allocate(forcek(1:forcenum),forcespes(1:forcenum),forcesped(1:forcenum))
-      !
-      do i=1,forcenum
+      select case(forcemethod)
+      case(1)
         if(mpirank==0)then
-          read(fh,*)forcek(i),forcespes(i),forcesped(i)
+          read(fh,*)forcenum,Kaddrate
+          read(fh,'(/)')
         endif
-        call bcast(forcek(i))
-        call bcast(forcespes(i))
-        call bcast(forcesped(i))
-      enddo
+        call bcast(forcenum)
+        call bcast(Kaddrate)
+        !
+        allocate(forcek(1:forcenum),forcespes(1:forcenum),forcesped(1:forcenum))
+        !
+        do i=1,forcenum
+          if(mpirank==0)then
+            read(fh,*)forcek(i),forcespes(i),forcesped(i)
+          endif
+          call bcast(forcek(i))
+          call bcast(forcespes(i))
+          call bcast(forcesped(i))
+        enddo
+      case(2)
+        if(mpirank==0)then
+          read(fh,*)Kaddrate
+        endif
+        call bcast(Kaddrate)
+      case(3)
+        allocate(forcek(1),forcespes(1))
+        !
+        if(mpirank==0)then
+          read(fh,*)forcek(1),forcespes(1)
+        endif
+        call bcast(forcek(1))
+        call bcast(forcespes(1))
+      case default
+      end select
     endif
     !
     if(mpirank==0)then
@@ -1065,17 +1083,27 @@ module readwrite
       if(lforce)then
         print*,"  ** Force activated!"
         if(lhyper)then
-          print*,"     Add hyperviscosity!"
+          print*,"---->Add hyperviscosity!"
           print*,"     hypervisk = ",hypervisk,"hypervismiu = ",hypervismiu
         endif
         if(llinear)then
-          print*,"     Add linear viscosity!"
+          print*,"---->Add linear viscosity!"
           print*,"     linearmiu = ",linearmiu
         endif
-        print*,"     Injecting energy at ",forcenum,"wavenumbers, with Kaddrate=:", Kaddrate
-        do i=1,forcenum
-          print*,i,") k= ", forcek(i), 'alphas = ', forcespes(i), 'alphad=', forcesped(i)
-        enddo
+        select case(forcemethod)
+        case(1)
+          print*,"----> Forcing at special wavenumber"
+          print*,"     Injecting energy at ",forcenum,"wavenumbers, with Kaddrate=:", Kaddrate
+          do i=1,forcenum
+            print*,i,") k= ", forcek(i), 'alphas = ', forcespes(i), 'alphad=', forcesped(i)
+          enddo
+        case(2)
+          print*,"----> Linear Forcing"
+          print*,"     Injecting energy with Kaddrate=:", Kaddrate
+        case(3)
+          print*,"----> TGV Forcing"
+          print*,"     Injecting energy at k= ", forcek(1), 'alphas = ', forcespes(1)
+        end select
       endif
       !
     endif

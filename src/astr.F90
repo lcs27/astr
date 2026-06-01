@@ -8,7 +8,7 @@ program astr
   !
   use parallel
   use readwrite
-  use commvar, only: lforce
+  use commvar, only: lforce, forcemethod
   use commarray
   use solver
   use initialisation
@@ -72,7 +72,7 @@ program astr
     !
     call flowinit
     !
-    if(lforce) call fftwprepare_forcing
+    if(lforce .and. forcemethod==1) call fftwprepare_forcing ! TODO: change to lFFTW
     !
     call codetest
     !

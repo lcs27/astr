@@ -533,31 +533,119 @@ module userdefine
   !+-------------------------------------------------------------------+
   subroutine udf_src
     !
-    use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,rkstep,xmax,ymax,zmax,&
-                         lforce,nstep, forcenum,lhyper,roinf,flowtype
-    use parallel, only : lio,psum,bcast
-    use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep,forcek,forcespes
-    use utility,  only : listinit,listwrite
-    use constdef, only : pi
-    use statistic,only : diss_rate_cal
+    use commvar,  only : lforce, forcemethod
     !
+    !
+    !
+    if(lforce) then
+      !
+      select case(forcemethod)
+      !
+      case(1)
+        print *,"Not developped!"
+      case(2)
+        call forcing_const_power()
+      case(3)
+        call forcing_TGV()
+      end select
+      !
+      !
+    endif
+    !
+  end subroutine udf_src
+  !
+  subroutine forcing_const_power()
+    use commvar,  only : im,jm,km,ia,ja,ka,rkstep, Kaddrate
+    use parallel, only : lio,psum
+    use commarray,only : rho,tmp,vel,qrhs,jacob,forcespes
+    use utility,  only : listinit,listwrite
+
+    implicit none
+
+    integer :: i,j,k
+    real(8) :: power,Tpower
+    real(8) :: Am,kappaT,ccc
+    real(8) :: rsamples
+
     logical,save :: linit=.true.
     integer,save :: hand_force
-    ! Random iniforce generation
-    integer :: NumTheta, n, i,j,k,t
-    real(8) :: theta
+
+    power  = 0.d0
+    Tpower = 0.d0
+
+    if(linit) then
+        !
+        if(lio) then
+          !
+          call listinit(filename='log/forcestat.dat',handle =hand_force, firstline='nstep time rkstep Am pow Tpow forcekT')
+          !
+        endif
+        !
+        linit = .false.
+        !
+      endif
+      !
+      !
+      ccc = Kaddrate
+      do k=1,km
+      do j=1,jm
+      do i=1,im
+        power  = power  + rho(i,j,k)*(vel(i,j,k,1)*vel(i,j,k,1) + &
+                                      vel(i,j,k,2)*vel(i,j,k,2) + &
+                                      vel(i,j,k,3)*vel(i,j,k,3))
+        Tpower = Tpower + tmp(i,j,k)**4
+      enddo
+      enddo
+      enddo
+      rsamples=dble(ia*ja*ka)
+      !
+      power = psum(power)/rsamples
+      Am = ccc * 1.d0/power
+      Tpower = psum(Tpower)/rsamples
+      kappaT = ccc * 1.d0/Tpower
+      !
+      if(lio) call listwrite(hand_force,dble(rkstep),Am,power,Tpower,kappaT)
+      !
+      ! Add in qrhs and calculate power
+      do k=0,km
+      do j=0,jm
+      do i=0,im
+        !
+        !
+        qrhs(i,j,k,2)=qrhs(i,j,k,2)+rho(i,j,k)*Am*vel(i,j,k,1)*jacob(i,j,k)
+        qrhs(i,j,k,3)=qrhs(i,j,k,3)+rho(i,j,k)*Am*vel(i,j,k,2)*jacob(i,j,k)
+        qrhs(i,j,k,4)=qrhs(i,j,k,4)+rho(i,j,k)*Am*vel(i,j,k,3)*jacob(i,j,k)
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)+rho(i,j,k)*(Am*vel(i,j,k,1)*vel(i,j,k,1) + &
+                                                Am*vel(i,j,k,2)*vel(i,j,k,2) + &
+                                                Am*vel(i,j,k,3)*vel(i,j,k,3) )*jacob(i,j,k)
+        !
+        !
+        ! temperation dissipation
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)-kappaT*(tmp(i,j,k)**4)*jacob(i,j,k)
+        !
+      end do
+      end do
+      end do
+      !
+  end subroutine forcing_const_power
+  !
+  subroutine forcing_TGV
+    use commvar,  only : im,jm,km,ia,ja,ka,rkstep, roinf
+    use parallel, only : lio,psum
+    use commarray,only : rho,tmp,vel,qrhs,jacob,forcespes,forcek,forcespes,x,forcep
+    use utility,  only : listinit,listwrite
+
+    implicit none
+
+    integer :: i,j,k
     real(8) :: power,rsamples,Tpower
     real(8) :: kappaT
     real(8) :: k0,Am,xx,yy,zz
-    real(8), save :: dissp=0.d0
-    character(len=4) :: forcename
+
+    logical,save :: linit=.true.
+    integer,save :: hand_force
     !
-    !
-    !
-    if(lforce .and. trim(flowtype)=='hittgf') then
-      !
-      !
-      if(linit) then
+    if(linit) then
         !
         if(lio) then
           !
@@ -634,9 +722,8 @@ module userdefine
       end do
       !
       !
-    endif
-    !
-  end subroutine udf_src
+  end subroutine forcing_TGV
+  !
   !+-------------------------------------------------------------------+
   !| The end of the subroutine udf_src.                                |
   !+-------------------------------------------------------------------+
