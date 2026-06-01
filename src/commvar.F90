@@ -182,11 +182,11 @@ module commvar
   integer :: ickmax
   real(8) :: icurms,icsolenoidal,icdilatational
   !
-  logical :: lforce,lhyper
+  logical :: lforce,lhyper,llinear
   integer :: forcenum
   !
   integer :: hypervisk
-  real(8) :: hypervismiu
+  real(8) :: hypervismiu,linearmiu,Kaddrate
   !
 #ifdef COMB
   logical :: lcomb

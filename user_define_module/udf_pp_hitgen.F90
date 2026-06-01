@@ -697,6 +697,9 @@ module udf_pp_hitgen
     case(1)
       if(mpirank == 0) print *, " ** Incompressible Poisson solver pressure"
       call incompressuresolve2d
+    case(2)
+      if(mpirank == 0) print *, " ** 2pinf"
+      prs(0:im,0:jm,0:km)  = 2*pinf
     case default
       if(mpirank == 0) print *, " ** Uniform pressure"
       prs(0:im,0:jm,0:km)  = pinf
@@ -1119,6 +1122,8 @@ module udf_pp_hitgen
   !
   function IniEnergDis(k0,wnb,method)
     !
+    use commvar,   only : ia
+    !
     real(8),intent(in) :: k0,wnb
     real(8) :: Ac,var1,IniEnergDis
     integer,intent(in) :: method
@@ -1150,7 +1155,7 @@ module udf_pp_hitgen
       Ac = 1.d0
       if(wnb<k0)then
         IniEnergDis = Ac*((k0/wnb)**(5.d0/3.d0))
-      else
+      elseif(wnb<int(ia/3))then
         IniEnergDis = Ac*((k0/wnb)**(3.d0))
       endif
       !

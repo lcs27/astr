@@ -591,7 +591,8 @@ module userdefine
   subroutine udf_src
     !
     use commvar,  only : im,jm,km,ndims,deltat,ia,ja,ka,rkstep,xmax,ymax,zmax,&
-                         lforce,nstep, forcenum,lhyper,roinf,reynolds,nondimen
+                         lforce,nstep, forcenum,lhyper,roinf,reynolds,nondimen,&
+                         Kaddrate
     use parallel, only : lio,psum,bcast
     use commarray,only : rho,tmp,vel,qrhs,x,jacob,forcep, forcehyper,forcek,prs,dvel
     use utility,  only : listinit,listwrite
@@ -605,7 +606,7 @@ module userdefine
     ! Random iniforce generation
     integer :: NumTheta, n, i,j,k,t
     real(8) :: theta
-    real(8) :: power,rsamples,Tpower, Ks, Kd, hyperdissp, Kenergy
+    real(8) :: power,rsamples,Tpower, Ks, Kd, hyperdissp, lineardissp, forcedissip, Kenergy
     real(8), save :: kappaT,kappaF
     real(8), allocatable,dimension(:), save :: alphas, alphad
     character(len=4) :: forcename
@@ -626,7 +627,7 @@ module userdefine
         if(lio) then
           !
           call listinit(filename='log/forcestat.dat',handle =hand_force, &
-            firstline='nstep time kappaT kappaF power Ks Kd hyperdissp')
+            firstline='nstep time kappaT kappaF power Ks Kd hyperdis lineardis forcedis')
           !
           do t=1,forcenum
             write(forcename,'(i4.4)')t
@@ -667,13 +668,13 @@ module userdefine
       ! dissp=psum(dissp)/dble(ia*ja)
       ! ptheta=psum(ptheta)/dble(ia*ja)
       !
-      kenergy = kenergycal()
+      ! kenergy = kenergycal()
       !
       if(rkstep==1)then
         k = 0
         !
         !
-        call udf_generate_force((0.5d0-kenergy)/deltat, alphas,alphad, Ks, Kd, hyperdissp)
+        call udf_generate_force(Kaddrate, alphas,alphad, Ks, Kd, hyperdissp,lineardissp)
         !
         if(lio) then 
           !
@@ -685,12 +686,14 @@ module userdefine
         ! Calculate power
         power = 0.0d0
         Tpower = 0.0d0
+        forcedissip = 0.d0
         !
         if(ndims == 2)then
           do j=1,jm
           do i=1,im
             power  = power  + roinf*(forcep(i,j,0,1)*vel(i,j,0,1) + forcep(i,j,0,2)*vel(i,j,0,2))
-            Tpower = Tpower + tmp(i,j,0)**4
+            Tpower = Tpower + tmp(i,j,0)!**4
+            forcedissip = forcedissip + roinf*(forcehyper(i,j,0,1)*vel(i,j,0,1) + forcehyper(i,j,0,2)*vel(i,j,0,2))
           enddo
           enddo
           !
@@ -700,9 +703,10 @@ module userdefine
         !
         power = psum(power)/rsamples
         Tpower = psum(Tpower)/rsamples
+        forcedissip = psum(forcedissip)/rsamples
         kappaF = 1.d0
         kappaT = kappaF * power/Tpower
-        if(lio) call listwrite(hand_force,kappaT,kappaF,power,Ks,Kd,hyperdissp)
+        if(lio) call listwrite(hand_force,kappaT,kappaF,power,Ks,Kd,hyperdissp,lineardissp,forcedissip)
         !
       endif
       !
@@ -725,7 +729,7 @@ module userdefine
         !
         !
         ! temperation dissipation
-        qrhs(i,j,k,5)=qrhs(i,j,k,5)-kappaT*(tmp(i,j,k)**4)*jacob(i,j,k)
+        qrhs(i,j,k,5)=qrhs(i,j,k,5)-kappaT*(tmp(i,j,k))*jacob(i,j,k)
         !
       end do
       end do
@@ -739,15 +743,15 @@ module userdefine
   !| The end of the subroutine udf_src.                                |
   !+-------------------------------------------------------------------+
   !
-  subroutine udf_generate_force(Kaddrate, alphas,alphad,Ks,Kd,hyperdissp)
+  subroutine udf_generate_force(Kaddrate, alphas,alphad,Ks,Kd,hyperdissp,lineardissp)
     !
     use commvar, only: ndims
     real(8), intent(in) :: Kaddrate
     real(8), allocatable, dimension(:), intent(out) :: alphas, alphad
-    real(8), intent(out) :: Ks,Kd,hyperdissp
+    real(8), intent(out) :: Ks,Kd,hyperdissp,lineardissp
     !   
     if(ndims == 2) then
-      call udf_generate_force_2D(Kaddrate, alphas,alphad,Ks,Kd,hyperdissp)
+      call udf_generate_force_2D(Kaddrate, alphas,alphad,Ks,Kd,hyperdissp,lineardissp)
     else
       print *, "ndims = ", ndims
       stop "Not implemented error! udf_generate_force unvalid ndims"
@@ -755,10 +759,10 @@ module userdefine
     !
   end subroutine udf_generate_force
     !
-  subroutine udf_generate_force_2D(Kaddrate, alphas, alphad,Ks,Kd,hyperdissp)
+  subroutine udf_generate_force_2D(Kaddrate, alphas, alphad,Ks,Kd,hyperdissp,lineardissp)
     !
     use, intrinsic :: iso_c_binding
-    use commvar,        only : forcenum,hypervisk,hypervismiu,im,jm,ia,ja,deltat,lhyper
+    use commvar,        only : forcenum,hypervisk,hypervismiu,im,jm,ia,ja,deltat,lhyper,llinear,linearmiu
     use commarray,      only : vel, forcep, forcehyper,forcek,forcespes,forcesped
     use fftwlink,       only : jmf, alloc_local, iafftw, jmfftw, fftw_grid_fence, fftw_fence_grid, jafftw, j0f
     use parallel,       only : MPI_COMM_WORLD, psum, mpiright, mpiup, mpitag, mpileft, mpidown, mpirank
@@ -769,7 +773,7 @@ module userdefine
     !
     real(8), intent(in) :: Kaddrate
     real(8), allocatable, dimension(:), intent(out):: alphas, alphad
-    real(8), intent(out) ::  Ks,Kd,hyperdissp
+    real(8), intent(out) ::  Ks,Kd,hyperdissp,lineardissp
     
     real(8) ::  dk, kk, thisEs, thisEd
     integer :: i,j,ierr,allkmax,kOrdinal,t
@@ -866,6 +870,7 @@ module userdefine
     Ks = 0.d0
     Kd = 0.d0
     hyperdissp = 0.d0
+    lineardissp = 0.d0
     !
     !
     do j=1,jmf
@@ -897,7 +902,14 @@ module userdefine
         enddo
         Ks = Ks + thisEs
         Kd = Kd + thisEd
-        hyperdissp = hyperdissp + (hypervismiu * hypervisk)**kk * (thisEs + thisEd)
+        if(lhyper)then
+          hyperdissp = hyperdissp + (hypervismiu * hypervisk)**kk * (thisEs + thisEd)
+        endif
+        if(llinear)then
+          if(kint(kk,dk,2,1.d0)==1)then
+            lineardissp = lineardissp + linearmiu * (thisEs + thisEd)
+          endif
+        endif
         !
     end do
     end do
@@ -909,7 +921,17 @@ module userdefine
     enddo
     Ks = psum(Ks)
     Kd = psum(Kd)
-    hyperdissp = psum(hyperdissp)
+    if(lhyper)then
+      hyperdissp = psum(hyperdissp)
+    else
+      hyperdissp = 0.d0
+    endif
+    !
+    if(llinear)then
+      lineardissp = psum(lineardissp)
+    else
+      lineardissp = 0.d0
+    endif
     !
     do t=1,forcenum
       if(Es(forcek(t))<1d-20)then
@@ -937,9 +959,18 @@ module userdefine
       do t=1,forcenum
         if(kint(kk,dk,2,1.d0)==forcek(t))then
           fftforce1c(i,j) = fftforce1c(i,j) + alphas(t) * u1s(i,j) + alphad(t) * u1d(i,j)
+          fftforce2c(i,j) = fftforce2c(i,j) + alphas(t) * u2s(i,j) + alphad(t) * u2d(i,j)
         endif
-        fftforce1hyperc(i,j) = - (hypervismiu * hypervisk)**kk * u1spe(i,j)
-        fftforce2hyperc(i,j) = - (hypervismiu * hypervisk)**kk * u2spe(i,j)
+        if(lhyper)then
+          fftforce1hyperc(i,j) = - (hypervismiu * hypervisk)**kk * u1spe(i,j)
+          fftforce2hyperc(i,j) = - (hypervismiu * hypervisk)**kk * u2spe(i,j)
+        endif
+        if(llinear)then
+          if(kint(kk,dk,2,1.d0)==1)then
+            fftforce1hyperc(i,j) = fftforce1hyperc(i,j) - linearmiu * u1spe(i,j)
+            fftforce2hyperc(i,j) = fftforce2hyperc(i,j) - linearmiu * u2spe(i,j)
+          endif
+        endif
       enddo
       !
     enddo

@@ -8855,9 +8855,9 @@ module udf_pp_SGS
         print*,' >>> Get: Number of l is',num_l,'Number of alpha is',num_alpha,'Minimum number of alpha is',num_alphamin
         print*,' >>> Ratio max:',ratio_max,'Ratio min',ratio_min
         if(loutput)then
-          print *, ' >>> No output stress'
-        else
           print *, ' >>> Output stress'
+        else
+          print *, ' >>> No output stress'
         endif
         !
       endif

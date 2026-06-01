@@ -989,7 +989,8 @@ module readwrite
   subroutine readic
     !
     use commvar,   only: ickmax,icurms,icsolenoidal,icdilatational,&
-                          lforce,lhyper,forcenum,hypervisk,hypervismiu
+                          lforce,lhyper,llinear,forcenum,hypervisk,&
+                          hypervismiu,linearmiu,Kaddrate
     use commarray, only: forcek,forcespes,forcesped
     use parallel,only: bcast
     !
@@ -1007,7 +1008,7 @@ module readwrite
       read(fh,'(////)')
       read(fh,*)ickmax,icurms,icsolenoidal,icdilatational
       read(fh,'(/)')
-      read(fh,*)lforce,lhyper
+      read(fh,*)lforce,lhyper,llinear
       read(fh,'(/)')
     endif
     call bcast(ickmax)
@@ -1016,6 +1017,7 @@ module readwrite
     call bcast(icdilatational)
     call bcast(lforce)
     call bcast(lhyper)
+    call bcast(llinear)
     !
     if(lforce)then
       if(lhyper)then
@@ -1027,11 +1029,20 @@ module readwrite
         call bcast(hypervismiu)
       endif
       !
+      if(llinear)then
+        if(mpirank==0)then
+          read(fh,*)linearmiu
+          read(fh,'(/)')
+        endif
+        call bcast(linearmiu)
+      endif
+      !
       if(mpirank==0)then
-        read(fh,*)forcenum
+        read(fh,*)forcenum,Kaddrate
         read(fh,'(/)')
       endif
       call bcast(forcenum)
+      call bcast(Kaddrate)
       !
       allocate(forcek(1:forcenum),forcespes(1:forcenum),forcesped(1:forcenum))
       !
@@ -1057,7 +1068,11 @@ module readwrite
           print*,"     Add hyperviscosity!"
           print*,"     hypervisk = ",hypervisk,"hypervismiu = ",hypervismiu
         endif
-        print*,"     Injecting energy at ",forcenum,"wavenumbers:"
+        if(llinear)then
+          print*,"     Add linear viscosity!"
+          print*,"     linearmiu = ",linearmiu
+        endif
+        print*,"     Injecting energy at ",forcenum,"wavenumbers, with Kaddrate=:", Kaddrate
         do i=1,forcenum
           print*,i,") k= ", forcek(i), 'alphas = ', forcespes(i), 'alphad=', forcesped(i)
         enddo
