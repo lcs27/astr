@@ -273,9 +273,9 @@ module mainloop
     use commvar,  only : im,jm,km,numq,deltat,lfilter,feqchkpt,hm,     &
                          lavg,feqavg,nstep,limmbou,turbmode,feqslice,  &
                          feqwsequ,lwslic,lreport,flowtype,     &
-                         ndims,num_species,maxstep
+                         ndims,num_species,maxstep,pinf,const2
     use commarray,only : x,q,qrhs,rho,vel,prs,tmp,spc,jacob
-    use fludyna,  only : updatefvar
+    use fludyna,  only : updatefvar,fvar2q
     use comsolver,only : filterq,spongefilter,filter2e
     use solver,   only : rhscal
     use bc,       only : boucon,immbody
@@ -405,6 +405,15 @@ module mainloop
       !
       call updatefvar
       !
+      ! Warning! Not good manipulation == freeze temparature
+      prs(0:im,0:jm,0:km)=pinf
+      tmp(0:im,0:jm,0:km)=pinf/rho(0:im,0:jm,0:km)*const2
+      call fvar2q(  q=  q(0:im,0:jm,0:km,:),                    &
+              density=rho(0:im,0:jm,0:km),                      &
+              velocity=vel(0:im,0:jm,0:km,:),                   &
+              pressure=prs(0:im,0:jm,0:km),                     &
+              temperature=tmp(0:im,0:jm,0:km),                  &
+              species=spc(0:im,0:jm,0:km,:)                    )
       ! for debug
       ! do k=0,km
       ! do j=0,jm

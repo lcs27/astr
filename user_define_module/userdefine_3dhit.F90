@@ -192,7 +192,7 @@ module userdefine
     integer :: i,j,k,ns
     real(8) :: rsamples,R
     real(8) :: urms,Kall,Kw,Krho,pavg,eavg,ptheta,rhocotheta,uutheta,rhouugrad,dissps,disspd,dissp
-    real(8) :: divU
+    real(8) :: divU,p2avg,pfluc
     real(8) :: divUdivU,traceSS,OmegaOmega,du2,m11m11,m22m22,m33m33, &
               m12m12,m13m13,m21m21,m23m23,m31m31,m32m32
     real(8) :: traceSSth,wsw,s3,divUdivUdivU,OmegaOmegadivU,du3, &
@@ -225,7 +225,7 @@ module userdefine
         call listinit(filename='log/stat2d_3rd.dat',handle=hand_c, &
                       firstline='ns ti th3 o2th trssth wsw s3 A111 A222 A333 A111212 A111221 A111122')
         call listinit(filename='log/stat2d_di.dat',handle=hand_d, &
-                      firstline='ns ti th kolmloc mfpath marms csavg nuav muav roav rho2nd w2drho')
+                      firstline='ns ti th kolmloc mfpath marms csavg nuav muav roav rho2nd w2drho pfluc')
         call listinit(filename='log/stat2d_scale.dat',handle=hand_e, &
                       firstline='ns ti ens macht skew ufluc Kol Tay ReTay Int ReInt')
       endif
@@ -246,6 +246,7 @@ module userdefine
     Kw=0.d0        ! Weakly compressible kinetic energy
     Krho=0.d0      ! Density fluctuation kinetic energy
     pavg=0.d0      ! Average pressure
+    p2avg = 0.d0
     eavg=0.d0      ! Average internal energy
     !
     ! Transfer terms
@@ -354,6 +355,7 @@ module userdefine
       Kw   = Kw   + 0.5d0* roinf      *v2
       Krho = Krho + 0.5d0* rhoprime   *v2
       pavg = pavg + prs(i,j,k)
+      p2avg = p2avg + prs(i,j,k)**2
       eavg = eavg + prs(i,j,k)*const6
       !
       ! Transfer terms
@@ -434,6 +436,8 @@ module userdefine
     Kw   = psum(Kw)/rsamples
     Krho = psum(Krho)/rsamples
     pavg = psum(pavg)/rsamples
+    p2avg = psum(p2avg)/rsamples
+    pfluc = p2avg - pavg**2
     eavg = psum(eavg)/rsamples
     !
     ptheta     = psum(ptheta)/rsamples
@@ -512,7 +516,7 @@ module userdefine
       call listwrite(hand_c,divUdivUdivU,OmegaOmegadivU,traceSSth,wsw,s3,&
                     m11m11m11,m22m22m22,m33m33m33,m11m12m12,m11m12m21,m11m11m22)
       call listwrite(hand_d,divU,kolmloc,mfpath,&
-                    machrms,csavg,niuavg,miuavg,rhoavg,rho2nd,w2drho)
+                    machrms,csavg,niuavg,miuavg,rhoavg,rho2nd,w2drho,pfluc)
       call listwrite(hand_e,ens,macht,skewness,ufluc,Kollength,Taylength,&
                     ReTay,Intlength,ReInt)
     endif

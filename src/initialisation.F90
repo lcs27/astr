@@ -83,6 +83,9 @@ module initialisation
         !
         call readflowini1d
         !
+      elseif(ninit==0) then
+        !
+        call flowinivoid
       else
         !
         ! pre-defined flow initilisation
@@ -169,6 +172,25 @@ module initialisation
   !+-------------------------------------------------------------------+
   !| The end of the subroutine flowinit.                               |
   !+-------------------------------------------------------------------+
+    !!
+  subroutine flowinivoid
+    !
+    use commarray, only : rho,vel,prs,tmp,spc,dvel
+    !
+    ! real(8) :: time_initial
+    !can be used to start premixed case, but not ready yet
+    ! 
+    ! call h5read(varname='time',var=time_initial)
+    vel  = 0.d0
+    dvel = 0.d0
+    !
+    rho=roinf
+    prs=pinf
+    tmp=tinf
+    spc=0.d0
+    !
+    !
+  end subroutine flowinivoid
   !
   !+-------------------------------------------------------------------+
   !| This subroutine is to initilise sponge layer.                     |
