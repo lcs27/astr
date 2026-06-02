@@ -16,6 +16,16 @@ module udf_pp_SGS
     !
     implicit none
     !
+    interface tensor_scale_3d
+      module procedure tensor_scale_3d_real
+      module procedure tensor_scale_3d_complex
+    end interface
+    interface tensor_multi_3d_scalar
+      module procedure tensor_multi_3d_scalar_real
+      module procedure tensor_multi_3d_scalar_auto_real
+      module procedure tensor_multi_3d_scalar_auto_complex
+      module procedure tensor_multi_3d_scalar_complex
+    end interface
     contains
     !
     subroutine ppSGSentrance
@@ -135,6 +145,17 @@ module udf_pp_SGS
             call bcast(filenumb)
             call SGSPi3Dint(filenumb)
             !
+        elseif(trim(readmode)=='PiB3Dint') then
+            ! 
+            if(mpirank == 0) then
+                print* ," ** Use SGSPiB3Dint"
+                call readkeyboad(inputfile) 
+                read(inputfile,'(i4)') filenumb
+                print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            call SGSPiB3Dint(filenumb)
+            !
         elseif(trim(readmode)=='Pi3Dtot') then
             ! 
             if(mpirank == 0) then
@@ -208,7 +229,7 @@ module udf_pp_SGS
     !
     !
   subroutine SGSPiOmega2D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -541,7 +562,7 @@ module udf_pp_SGS
     end subroutine SGSPiOmega2D
     !
     subroutine SGSPi2Dtot(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -877,7 +898,7 @@ module udf_pp_SGS
     end subroutine SGSPi2Dtot
     !
     subroutine SGSPi2Dlocal(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -1208,7 +1229,7 @@ module udf_pp_SGS
     end subroutine SGSPi2Dlocal
     !
     subroutine SGSE2D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -1521,7 +1542,7 @@ module udf_pp_SGS
     end subroutine SGSE2D
     !
     subroutine SGSET2D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       ! 
       !
       use, intrinsic :: iso_c_binding
@@ -2406,7 +2427,7 @@ module udf_pp_SGS
     end subroutine SGSET2D
     !
     subroutine SGSE3D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
       use fftwlink
@@ -2755,7 +2776,7 @@ module udf_pp_SGS
     end subroutine SGSE3D
     !
     subroutine SGSET3D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       ! 
       !
       use, intrinsic :: iso_c_binding
@@ -4096,7 +4117,7 @@ module udf_pp_SGS
     end subroutine SGSET3D
     !
     subroutine SGSPi2Dint(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -4694,7 +4715,7 @@ module udf_pp_SGS
     end subroutine SGSPi2Dint
     !
     subroutine SGSPi3Dtot(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -5160,7 +5181,7 @@ module udf_pp_SGS
     end subroutine SGSPi3Dtot
     !
     subroutine SGSPi3Dlocal(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -5603,7 +5624,7 @@ module udf_pp_SGS
     end subroutine SGSPi3Dlocal
     !
     subroutine SGSLES3D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -5994,7 +6015,7 @@ module udf_pp_SGS
       integer :: num_l,num_alpha,num_alphamin
       integer :: hand_a,hand_b
       real(8) :: l_min, ratio_max, ratio_min
-      real(8), allocatable, dimension(:,:) :: Pii
+      real(8), allocatable, dimension(:,:) :: PiI
       real(8), allocatable, dimension(:) :: Pirank, Pisum
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1,w2,w3,rhocom
       complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1_filted,w2_filted,w3_filted,rho_filted
@@ -6074,6 +6095,7 @@ module udf_pp_SGS
       w2(1:im,1:jm,1:km) = CMPLX(vel(1:im,1:jm,1:km,2) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
       w3(1:im,1:jm,1:km) = CMPLX(vel(1:im,1:jm,1:km,3) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
       rhocom(1:im,1:jm,1:km) = CMPLX(rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      deallocate(vel,rho)
       !
       !After this bloc, w1 is (rho*u1) in spectral space
       call fft3d(w1,forward_plan)
@@ -6121,7 +6143,7 @@ module udf_pp_SGS
       call mpi_barrier(mpi_comm_world,ierr)
       !
       !!!!
-      allocate(Pii(1:7,1:num_l), Pirank(1:7), Pisum(1:7))
+      allocate(PiI(1:7,1:num_l), Pirank(1:7), Pisum(1:7))
       !
       c_w1_filted = fftw_alloc_complex(alloc_local)
       call c_f_pointer(c_w1_filted, w1_filted,  [imfftw,jmfftw,kmfftw])
@@ -6135,10 +6157,10 @@ module udf_pp_SGS
       c_A_filted = fftw_alloc_complex(9*alloc_local)
       call c_f_pointer(c_A_filted, A_filted,[imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
       !
-      allocate(All_filted_l(1:im,1:jm,1:km),S_filted_l(1:im,1:jm,1:km,3,3))
+      allocate(All_filted_l(1:im,1:jm,1:km),S_filted_l(1:im,1:jm,1:km,1:3,1:3))
       !
-      allocate(All_filted(1:im,1:jm,1:km),S_filted(1:im,1:jm,1:km,3,3),&
-              W_filted(1:im,1:jm,1:km,3,3))
+      allocate(All_filted(1:im,1:jm,1:km),S_filted(1:im,1:jm,1:km,1:3,1:3),&
+              W_filted(1:im,1:jm,1:km,1:3,1:3))
       !
       c_term = fftw_alloc_complex(9*alloc_local)
       call c_f_pointer(c_term, term, [imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
@@ -6147,7 +6169,7 @@ module udf_pp_SGS
       !
       !
       Pirank = 0.d0
-      Pii =	0.d0
+      PiI =	0.d0
       Pisum =	0.d0
       !
       if(mpirank==0)  print *, "Array allocated and initialized"
@@ -6192,17 +6214,8 @@ module udf_pp_SGS
         call fft3d(w2_filted,forward_plan)
         call fft3d(w3_filted,forward_plan)
         !
-        A_filted(:,:,:,1,1) = imag*w1_filted*k1
-        A_filted(:,:,:,2,1) = imag*w2_filted*k1
-        A_filted(:,:,:,3,1) = imag*w3_filted*k1
-        A_filted(:,:,:,1,2) = imag*w1_filted*k2
-        A_filted(:,:,:,2,2) = imag*w2_filted*k2
-        A_filted(:,:,:,3,2) = imag*w3_filted*k2
-        A_filted(:,:,:,1,3) = imag*w1_filted*k3
-        A_filted(:,:,:,2,3) = imag*w2_filted*k3
-        A_filted(:,:,:,3,3) = imag*w3_filted*k3
-        !
-        !
+        call vector_gradient(A_filted, w1_filted, w2_filted, w3_filted, &
+                                 k1, k2, k3)
         !
         ! After this bloc, A11_filted is A11_filted in physical space
         call ifft3dtensor(A_filted,backward_plan)
@@ -6254,15 +6267,9 @@ module udf_pp_SGS
           call fft3d(w1_filted,forward_plan)
           call fft3d(w2_filted,forward_plan)
           call fft3d(w3_filted,forward_plan)
-          A_filted(:,:,:,1,1) = imag*w1_filted*k1
-          A_filted(:,:,:,2,1) = imag*w2_filted*k1
-          A_filted(:,:,:,3,1) = imag*w3_filted*k1
-          A_filted(:,:,:,1,2) = imag*w1_filted*k2
-          A_filted(:,:,:,2,2) = imag*w2_filted*k2
-          A_filted(:,:,:,3,2) = imag*w3_filted*k2
-          A_filted(:,:,:,1,3) = imag*w1_filted*k3
-          A_filted(:,:,:,2,3) = imag*w2_filted*k3
-          A_filted(:,:,:,3,3) = imag*w3_filted*k3
+          !
+          call vector_gradient(A_filted, w1_filted, w2_filted, w3_filted, &
+                                 k1, k2, k3)
           !
           ! After this bloc, A11_filted is A11_filted in physical space
           call ifft3dtensor(A_filted,backward_plan)
@@ -6287,11 +6294,7 @@ module udf_pp_SGS
           !! Action I: SS
           call tensor_multi_3d_rhoABT(term,rho_filted,S_filted,S_filted)
           call fft3dtensor(term, forward_plan)
-          do j=1,3
-          do i=1,3
-            term(:,:,:,i,j) = term(:,:,:,i,j) * Gphi
-          enddo
-          enddo
+          call tensor_scale_3d(term,Gphi)
           call ifft3dtensor(term,  backward_plan)
           Pirank(1) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n) ! --> Pi1 = (SS)S
           Pirank(2) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n)/3.d0 + &
@@ -6301,11 +6304,7 @@ module udf_pp_SGS
           !! Action II: WW
           call tensor_multi_3d_rhoABT(term,rho_filted,W_filted,W_filted)
           call fft3dtensor(term, forward_plan)
-          do j=1,3
-          do i=1,3
-            term(:,:,:,i,j) = term(:,:,:,i,j) * Gphi
-          enddo
-          enddo
+          call tensor_scale_3d(term,Gphi)
           call ifft3dtensor(term,  backward_plan)
           Pirank(4) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n) ! --> Pi4 = (WW)S
           Pirank(5) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n)*1.d0/3.d0 + &
@@ -6314,29 +6313,17 @@ module udf_pp_SGS
                       ! --> Pi5 = (WW)Theta
           !
           !! Action III: SW
-          call tensor_multi_3d_rhoABT(term,rho_filted,S_filted,W_filted)
-          term = 2.d0*term
+          call tensor_multi_3d_rhoABT(term,rho_filted,S_filted,W_filted,1)
           call fft3dtensor(term, forward_plan)
-          do j=1,3
-          do i=1,3
-            term(:,:,:,i,j) = term(:,:,:,i,j) * Gphi
-          enddo
-          enddo
+          call tensor_scale_3d(term,Gphi)
           call ifft3dtensor(term,  backward_plan)
           Pirank(6) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n) !--> Pi6 (SW)S
           !
           !! Action IV: (STheta)
-          do j = 1,3
-          do i = 1,3
-          term(:,:,:,i,j) = rho_filted * S_filted (:,:,:,i,j) * All_filted
-          end do
-          end do
+          call tensor_multi_3d_scalar(term,S_filted,All_filted)
+          call tensor_multi_3d_scalar(term,rho_filted)
           call fft3dtensor(term, forward_plan)
-          do j=1,3
-          do i=1,3
-            term(:,:,:,i,j) = term(:,:,:,i,j) * Gphi
-          enddo
-          enddo
+          call tensor_scale_3d(term,Gphi)
           call ifft3dtensor(term,  backward_plan)
           Pirank(3) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)*2.d0/3.d0
           !
@@ -6352,7 +6339,7 @@ module udf_pp_SGS
             Pisum(i)=psum(Pirank(i))/(ia*ja*ka)
           enddo
           !
-          Pii(:,m) = Pii(:,m) + Pisum(:)
+          PiI(:,m) = PiI(:,m) + Pisum(:)
           !
           if(mpirank==0) then
             call listwrite(hand_b,l_sqrtalpha(m,n),Pisum(1), Pisum(2),Pisum(3), &
@@ -6367,8 +6354,8 @@ module udf_pp_SGS
           call listwrite(hand_b,0.d0, 0.d0, 0.d0, &
                       0.d0, 0.d0, 0.d0,&
                       0.d0, 0.d0)
-          call listwrite(hand_b,Pii(1,m)+Pii(2,m)+Pii(3,m)+Pii(4,m)+Pii(5,m)+Pii(6,m)+Pii(7,m), & 
-          Pii(1,m), Pii(2,m),Pii(3,m),Pii(4,m), Pii(5,m),Pii(6,m), Pii(7,m))
+          call listwrite(hand_b,sum(PiI(:,m)), & 
+          PiI(1,m), PiI(2,m),PiI(3,m),PiI(4,m), PiI(5,m),PiI(6,m), PiI(7,m))
           !
           close(unit=hand_b)
           !
@@ -6391,7 +6378,7 @@ module udf_pp_SGS
         call listinit(filename=outfilename,handle=hand_a, &
                       firstline='nstep time ell pi1 pi2 pi3 pi4 pi5 pi6 pi7')
         do m=1,num_l
-          call listwrite(hand_a,l_lim(m), Pii(1,m), Pii(2,m),Pii(3,m),Pii(4,m), Pii(5,m),Pii(6,m), Pii(7,m))
+          call listwrite(hand_a,l_lim(m), PiI(1,m), PiI(2,m),PiI(3,m),PiI(4,m), PiI(5,m),PiI(6,m), PiI(7,m))
         enddo
         !
         print *, '>>>>', outfilename
@@ -6415,12 +6402,808 @@ module udf_pp_SGS
       deallocate(All_filted,S_filted,W_filted)
       deallocate(k1,k2,k3,ksq,Galpha,Gl,Gphi)
       deallocate(l_lim,l_sqrtalpha,l_phi,dl_alpha)
-      deallocate(Pii,Pirank,Pisum)
+      deallocate(PiI,Pirank,Pisum)
       !
     end subroutine SGSPi3Dint
     !
+    subroutine SGSPiB3Dint(thefilenumb)
+      ! 
+      !
+      use, intrinsic :: iso_c_binding
+      use readwrite, only : readinput
+      use fftwlink
+      use commvar,only : time,nstep,im,jm,km,ia,ja,ka
+      use commarray, only: vel, rho
+      use hdf5io
+      use utility,  only : listinit,listwrite
+      use parallel, only : bcast, pmax, pmin, psum, lio, parallelini,mpistop
+      use solver, only: refcal
+      include 'fftw3-mpi.f03'
+      !
+      integer,intent(in) :: thefilenumb
+      integer :: fh
+      integer :: i,j,k,m,n,mmm
+      character(len=128) :: infilename,outfilename
+      character(len=4) :: stepname,mname
+      
+      real(8), allocatable, dimension(:,:,:) :: k1,k2,k3,ksq,Gl,Galpha,Gphi
+      real(8), allocatable, dimension(:,:,:,:) :: mag
+      complex(8) :: imag
+      real(8),allocatable,dimension(:) :: l_lim
+      real(8),allocatable,dimension(:,:) :: l_sqrtalpha,l_phi,dl_alpha
+      integer,allocatable,dimension(:) :: num_alphas
+      integer :: num_l,num_alpha,num_alphamin
+      integer :: hand_a,hand_pipI,hand_pipM,hand_pipA,hand_pipD
+      real(8) :: l_min, ratio_max, ratio_min
+      real(8), allocatable, dimension(:,:) :: PiI,PiM,PiA,PiD
+      real(8), allocatable, dimension(:) :: Pirank, Pisum
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1,w2,w3,b1,b2,b3,rhocom
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: w1_filted,w2_filted,w3_filted,rho_filted,&
+                                                              b1_filted,b2_filted,b3_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:,:,:) :: A_filted, C_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:,:) :: H_filted
+      real(8), allocatable, dimension(:,:,:) :: All_filted_l,All_filted
+      real(8), allocatable, dimension(:,:,:,:,:) :: S_filted_l,S_filted,W_filted
+      real(8), allocatable, dimension(:,:,:,:,:) :: C_filted_l,Sigma_filted_l,J_filted_l,Sigma_filted,J_filted
+      !
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:,:,:) :: term
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: termM
+      !
+      type(C_PTR) :: c_w1,c_w2,c_w3,c_rhocom,c_b1,c_b2,c_b3
+      type(C_PTR) :: forward_plan,backward_plan!,forward_tensorplan,backward_tensorplan
+      type(C_PTR) :: c_w1_filted,c_w2_filted,c_w3_filted,c_rho_filted,&
+                     c_b1_filted,c_b2_filted,c_b3_filted
+      type(C_PTR) :: c_A_filted,c_C_filted,c_H_filted,c_term,c_termM
+      !
+      integer,dimension(8) :: value
+      character(len=1) :: modeio
+      logical :: loutput
+      !
+      call readinput
+      call refcal
+      if(mpirank==0)  print*, '** refcal done!'
+      !
+      modeio='h'
+      ! Initialization
+      call fftw_mpi_init()
+      if(mpirank==0)  print *, "fftw_mpi initialized"
+      !
+      if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:",ka
+      !
+      call mpisizedis_fftw
+      if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+      !
+      call parallelini
+      if(mpirank==0)  print*, '** parallelini done!'
+      !
+      !!!! Read velocity and density field
+      allocate(vel(0:im,0:jm,0:km,1:3), mag(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km))
+      !
+      if (thefilenumb .ne. 0) then
+        write(stepname,'(i4.4)')thefilenumb
+        infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+      else
+        infilename='outdat/flowfield.'//modeio//'5'
+      endif
+      !
+      call h5io_init(filename=infilename,mode='read')
+      !
+      call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='b1', var=mag(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='b2', var=mag(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='b3', var=mag(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+      !
+      call h5io_end
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      if(mpirank==0)  print *, "Field read finish!"
+      !
+      !!!! Prepare initial field in Fourier space
+      !! velocity
+      c_w1 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1, w1, [imfftw,jmfftw,kmfftw])
+      c_w2 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2, w2, [imfftw,jmfftw,kmfftw])
+      c_w3 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3, w3, [imfftw,jmfftw,kmfftw])
+      c_rhocom = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rhocom, rhocom, [imfftw,jmfftw,kmfftw])
+      c_b1 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b1, b1, [imfftw,jmfftw,kmfftw])
+      c_b2 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b2, b2, [imfftw,jmfftw,kmfftw])
+      c_b3 = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b3, b3, [imfftw,jmfftw,kmfftw])
+      !
+      forward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+      backward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, w1,w1, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+      !
+      ! Fill spectral arrays with density-weighted velocity and density
+      w1(1:im,1:jm,1:km) = CMPLX(vel(1:im,1:jm,1:km,1) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      w2(1:im,1:jm,1:km) = CMPLX(vel(1:im,1:jm,1:km,2) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      w3(1:im,1:jm,1:km) = CMPLX(vel(1:im,1:jm,1:km,3) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      rhocom(1:im,1:jm,1:km) = CMPLX(rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      b1(1:im,1:jm,1:km) = CMPLX(mag(1:im,1:jm,1:km,1), 0.d0, C_INTPTR_T)
+      b2(1:im,1:jm,1:km) = CMPLX(mag(1:im,1:jm,1:km,2), 0.d0, C_INTPTR_T)
+      b3(1:im,1:jm,1:km) = CMPLX(mag(1:im,1:jm,1:km,3), 0.d0, C_INTPTR_T)
+      deallocate(vel,mag,rho)
+      !
+      !After this bloc, w1 is (rho*u1) in spectral space
+      call fft3d(w1,forward_plan)
+      call fft3d(w2,forward_plan)
+      call fft3d(w3,forward_plan)
+      call fft3d(rhocom,forward_plan)
+      call fft3d(b1,forward_plan)
+      call fft3d(b2,forward_plan)
+      call fft3d(b3,forward_plan)
+      !
+      !! wavenumber
+      allocate(k1(1:im,1:jm,1:km),k2(1:im,1:jm,1:km),k3(1:im,1:jm,1:km),ksq(1:im,1:jm,1:km))
+      allocate(Gl(1:im,1:jm,1:km),Galpha(1:im,1:jm,1:km),Gphi(1:im,1:jm,1:km))
+      call GenerateWave(im,jm,km,ia,ja,ka,k0f,k1,k2,k3)
+      ksq = k1*k1 + k2*k2 + k3*k3
+      !
+      !! Imaginary number prepare
+      imag = CMPLX(0.d0,1.d0,8)
+      !
+      if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
+      !!!! Prepare l,alpha and others
+      call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
+      l_min = 2*pi/ia
+      allocate(l_lim(1:num_l),num_alphas(1:num_l),l_sqrtalpha(1:num_l,1:num_alpha))
+      allocate(l_phi(1:num_l,1:num_alpha),dl_alpha(1:num_l,1:num_alpha))
+      !
+      call SGSscale_allocate(num_l,l_min,ratio_max,ratio_min,l_lim,num_alpha,num_alphamin,num_alphas,l_sqrtalpha,l_phi,dl_alpha)
+      !
+      if(mpirank==0)  print *, "Integrate point allocated"
+      !
+      if(mpirank==0) then
+        open(fh,file='pp/SGSintegral.info',form='formatted')
+        write(fh,"(2(A9,1x))")'NumL','NumAlpha'
+        write(fh,"(2(I9,1x))")num_l,num_alpha
+        write(fh,"(2(A9,1x),2(A15,1x))")'i','j','l_lim','l_sqrtalpha'
+        do i=1,num_l
+          do j=1,num_alphas(i)
+          ! Output file of rank information.
+            write(fh,"(2(I9,1x),2(E15.7E3,1x))")i,j,l_lim(i),l_sqrtalpha(i,j)
+          enddo
+        enddo
+        !
+        close(fh)
+        print*,' << SGSintegral.info ... done !'
+      endif
+      !
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      !!!!
+      allocate(PiI(1:7,1:num_l),PiM(1:5,1:num_l),PiA(1:13,1:num_l),PiD(1:13,1:num_l), Pirank(1:13), Pisum(1:13))
+      !
+      c_w1_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w1_filted, w1_filted,  [imfftw,jmfftw,kmfftw])
+      c_w2_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w2_filted, w2_filted,  [imfftw,jmfftw,kmfftw])
+      c_w3_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_w3_filted, w3_filted,  [imfftw,jmfftw,kmfftw])
+      c_rho_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rho_filted, rho_filted,[imfftw,jmfftw,kmfftw])
+      c_b1_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b1_filted, b1_filted,  [imfftw,jmfftw,kmfftw])
+      c_b2_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b2_filted, b2_filted,  [imfftw,jmfftw,kmfftw])
+      c_b3_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_b3_filted, b3_filted,  [imfftw,jmfftw,kmfftw])
+      !
+      c_A_filted = fftw_alloc_complex(9*alloc_local)
+      call c_f_pointer(c_A_filted, A_filted,[imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
+      c_C_filted = fftw_alloc_complex(9*alloc_local)
+      call c_f_pointer(c_C_filted, C_filted,[imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
+      c_H_filted = fftw_alloc_complex(3*alloc_local)
+      call c_f_pointer(c_H_filted, H_filted,[imfftw,jmfftw,kmfftw,3_C_SIZE_T])
+      !
+      allocate(All_filted_l(1:im,1:jm,1:km),S_filted_l(1:im,1:jm,1:km,1:3,1:3))
+      allocate(C_filted_l(1:im,1:jm,1:km,1:3,1:3),Sigma_filted_l(1:im,1:jm,1:km,1:3,1:3),&
+               J_filted_l(1:im,1:jm,1:km,1:3,1:3))
+      !
+      allocate(All_filted(1:im,1:jm,1:km),S_filted(1:im,1:jm,1:km,1:3,1:3),&
+              W_filted(1:im,1:jm,1:km,1:3,1:3))
+      allocate(Sigma_filted(1:im,1:jm,1:km,1:3,1:3),J_filted(1:im,1:jm,1:km,1:3,1:3))
+      !
+      c_term = fftw_alloc_complex(9*alloc_local)
+      call c_f_pointer(c_term, term, [imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
+      c_termM   = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_termM,termM,[imfftw,jmfftw,kmfftw])
+      !
+      !
+      PiI =	0.d0
+      PiM = 0.d0
+      PiA = 0.d0
+      PiD = 0.d0
+      !
+      if(mpirank==0)  print *, "Array allocated and initialized"
+      !
+      do m=1,num_l
+        !
+        !!!!!! Filter to get Sij filted by l
+        if(mpirank==0)  print *, '* l = ', l_lim(m) ,' at', m, '/', num_l
+        !
+        if(mpirank == 0) then
+          write(mname,'(i4.4)')m
+          if (thefilenumb .ne. 0) then
+            outfilename = 'pp/SGS_PiI_precise_'//stepname//'_'//mname//'.dat'
+          else
+            outfilename = 'pp/SGS_PiI_precise_'//mname//'.dat'
+          endif
+          call listinit(filename=outfilename,handle=hand_pipI, &
+                      firstline='nstep time sqrtalpha pi1 pi2 pi3 pi4 pi5 pi6 pi7')
+          !
+          if (thefilenumb .ne. 0) then
+            outfilename = 'pp/SGS_PiM_precise_'//stepname//'_'//mname//'.dat'
+          else
+            outfilename = 'pp/SGS_PiM_precise_'//mname//'.dat'
+          endif
+          call listinit(filename=outfilename,handle=hand_pipM, &
+                      firstline='nstep time sqrtalpha pi1 pi2 pi3 pi4 pi5')
+          !
+          if (thefilenumb .ne. 0) then
+            outfilename = 'pp/SGS_PiA_precise_'//stepname//'_'//mname//'.dat'
+          else
+            outfilename = 'pp/SGS_PiA_precise_'//mname//'.dat'
+          endif
+          call listinit(filename=outfilename,handle=hand_pipA, &
+          firstline='nstep time sqrtalpha pi1 pi2 pi3 pi4 pi5 pi6 pi7 pi8 pi9 pi10 pi11 pi12 pi13')
+          !
+          if (thefilenumb .ne. 0) then
+            outfilename = 'pp/SGS_PiD_precise_'//stepname//'_'//mname//'.dat'
+          else
+            outfilename = 'pp/SGS_PiD_precise_'//mname//'.dat'
+          endif
+          call listinit(filename=outfilename,handle=hand_pipD, &
+          firstline='nstep time sqrtalpha pi1 pi2 pi3 pi4 pi5 pi6 pi7 pi8 pi9 pi10 pi11 pi12 pi13')
+          !
+        endif
+        !
+        !!!! l filetering --> outside
+        ! After this bloc, w1_filted is (rho*u1)_filted in spectral space
+        Gl = exp(-ksq*l_lim(m)**2/2.d0) ! Filtre scale :l
+        w1_filted    = w1    *Gl
+        w2_filted    = w2    *Gl
+        w3_filted    = w3    *Gl
+        rho_filted   = rhocom*Gl
+        b1_filted    = b1    *Gl
+        b2_filted    = b2    *Gl
+        b3_filted    = b3    *Gl
+        !
+        ! Only velocity do Favre filtering
+        ! After this bloc, w1_filted is (rho*u1)_filted in physical space
+        call ifft3d(w1_filted,backward_plan)
+        call ifft3d(w2_filted,backward_plan)
+        call ifft3d(w3_filted,backward_plan)
+        call ifft3d(rho_filted,backward_plan)
+        !
+        ! After this bloc, w1_filted is u1_filted in physical space
+        w1_filted = w1_filted/rho_filted
+        w2_filted = w2_filted/rho_filted
+        w3_filted = w3_filted/rho_filted
+        !
+        ! After this bloc, w1_filted is u1_filted in fourier space, A11_filted is A11_filted in fourier space
+        call fft3d(w1_filted,forward_plan)
+        call fft3d(w2_filted,forward_plan)
+        call fft3d(w3_filted,forward_plan)
+        !
+        call vector_gradient(A_filted, w1_filted, w2_filted, w3_filted, &
+                                 k1, k2, k3)
+        call vector_gradient(C_filted, b1_filted, b2_filted, b3_filted, &
+                                 k1, k2, k3)
+        !
+        ! After this bloc, A11_filted is A11_filted in physical space
+        call ifft3dtensor(A_filted,backward_plan)
+        call ifft3dtensor(C_filted,backward_plan)
+        !
+        All_filted_l(:,:,:) = dreal(A_filted(:,:,:,1,1)+A_filted(:,:,:,2,2)+A_filted(:,:,:,3,3))
+        !
+        do j=1,3
+        do i=1,3
+          if(i==j)then
+            S_filted_l(:,:,:,i,j)=dreal(A_filted(:,:,:,i,j)) - 1.d0/3.d0 * All_filted_l(:,:,:)
+          else
+            S_filted_l(:,:,:,i,j)=dreal(A_filted(:,:,:,i,j) + A_filted(:,:,:,j,i))*0.5d0
+          endif
+          Sigma_filted_l(:,:,:,i,j)=dreal(C_filted(:,:,:,i,j) + C_filted(:,:,:,j,i))*0.5d0
+          J_filted_l(:,:,:,i,j)=dreal(C_filted(:,:,:,i,j) - C_filted(:,:,:,j,i))*0.5d0
+          C_filted_l(:,:,:,i,j)=C_filted(:,:,:,i,j)
+        end do
+        end do
+        !
+        if(mpirank==0)  print *, '** l filted!'
+        !
+        !!!!!! Begin integral
+        !
+        do n=1,num_alphas(m)
+          !
+          call date_and_time(values=value) 
+          !
+          if(mpirank==0)  print *, '** Integrate for ',n,'/',num_alphas(m),',now is ',&
+                                  value(5), ':', value(6),':',value(7)
+          ! 
+          !!!! Alpha filetering ---> inside
+          ! After this bloc, w1_filted is (rho*u1)_filted in spectral space
+          Galpha = exp(-ksq*l_sqrtalpha(m,n)**2/2.d0) ! Filtre scale :sqrtalpha
+          Gphi = exp(-ksq*l_phi(m,n)**2/2.d0)
+          !
+          w1_filted  = w1    *Galpha
+          w2_filted  = w2    *Galpha
+          w3_filted  = w3    *Galpha
+          rho_filted = rhocom*Galpha
+          b1_filted  = b1    *Galpha
+          b2_filted  = b2    *Galpha
+          b3_filted  = b3    *Galpha
+          !
+          ! Only velocity do Favre filtering
+          ! After this bloc, w1_filted is (rho*u1)_filted in physical space
+          call ifft3d(w1_filted,backward_plan)
+          call ifft3d(w2_filted,backward_plan)
+          call ifft3d(w3_filted,backward_plan)
+          call ifft3d(rho_filted,backward_plan)
+          ! B need to be in physical space
+          call ifft3d(b1_filted,backward_plan)
+          call ifft3d(b2_filted,backward_plan)
+          call ifft3d(b3_filted,backward_plan)
+          !
+          ! After this bloc, w1_filted is u1_filted in physical space
+          w1_filted = w1_filted/rho_filted
+          w2_filted = w2_filted/rho_filted
+          w3_filted = w3_filted/rho_filted
+          !
+          ! After this bloc, w1_filted is u1_filted in fourier space, A11_filted is A11_filted in fourier space
+          call fft3d(w1_filted,forward_plan)
+          call fft3d(w2_filted,forward_plan)
+          call fft3d(w3_filted,forward_plan)
+          call fft3d(rho_filted,forward_plan)
+          !
+          call vector_gradient(A_filted, w1_filted, w2_filted, w3_filted, &
+                                 k1, k2, k3)
+          call vector_gradient(C_filted, b1_filted, b2_filted, b3_filted, &
+                                 k1, k2, k3)
+          call scalar_gradient(H_filted, rho_filted, k1,k2,k3)
+          !
+          ! After this bloc, A11_filted is A11_filted in physical space
+          call ifft3dtensor(A_filted,backward_plan)
+          call ifft3dtensor(C_filted,backward_plan)
+          call ifft3dvector(H_filted,backward_plan)
+          call ifft3d(rho_filted,backward_plan)
+          !
+          All_filted(:,:,:) = dreal(A_filted(:,:,:,1,1)+A_filted(:,:,:,2,2)+A_filted(:,:,:,3,3))
+          do j=1,3
+            do i=1,3
+              if(i==j)then
+                S_filted(:,:,:,i,j)=dreal(A_filted(:,:,:,i,j)) - 1.d0/3.d0 * All_filted_l(:,:,:)
+                W_filted(:,:,:,i,j)=0.d0
+                J_filted(:,:,:,i,j)=0.d0
+              else
+                S_filted(:,:,:,i,j)=dreal(A_filted(:,:,:,i,j) + A_filted(:,:,:,j,i))*0.5d0
+                W_filted(:,:,:,i,j)=dreal(A_filted(:,:,:,i,j) - A_filted(:,:,:,j,i))*0.5d0
+                J_filted(:,:,:,i,j)=dreal(C_filted(:,:,:,i,j) - C_filted(:,:,:,j,i))*0.5d0
+              endif
+              Sigma_filted(:,:,:,i,j)=dreal(C_filted(:,:,:,i,j) + C_filted(:,:,:,j,i))*0.5d0
+            end do
+            H_filted(:,:,:,j)=H_filted(:,:,:,j)/rho_filted
+          end do
+          !
+          !!!! Pi terms
+          rho_filted = dreal(rho_filted)
+          !
+          !!! Mechanism 1:Inertial - I
+          Pirank = 0.d0
+          Pisum =	0.d0
+          !! Action I: SS
+          call tensor_multi_3d_rhoABT(term,rho_filted,S_filted,S_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(1) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          Pirank(2) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n)+ &
+                      sum(real(term(:,:,:,2,2),8)*All_filted_l)*dl_alpha(m,n)+ &
+                      sum(real(term(:,:,:,3,3),8)*All_filted_l)*dl_alpha(m,n)
+          Pirank(2) = Pirank(2)/3.d0
+          !
+          !! Action II: WW
+          call tensor_multi_3d_rhoABT(term,rho_filted,W_filted,W_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(3) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          Pirank(4) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,2,2),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,3,3),8)*All_filted_l)*dl_alpha(m,n) 
+          Pirank(4) = Pirank(4)/3.d0
+          !
+          !! Action III: SW
+          call tensor_multi_3d_rhoABT(term,rho_filted,S_filted,W_filted,1)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(5) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          !
+          !! Action IV: (STheta)
+          call tensor_multi_3d_scalar(term,S_filted,All_filted)
+          call tensor_multi_3d_scalar(term,rho_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(6) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)*2.d0/3.d0
+          !
+          !! Action V:(ThetaTheta)
+          termM = rho_filted * All_filted*All_filted
+          call fft3d(termM, forward_plan)
+          termM = termM * Gphi
+          call ifft3d(termM, backward_plan)
+          Pirank(7) = sum(real(termM,8)*All_filted_l)*dl_alpha(m,n)/9.d0
+          !
+          !! Summation
+          do i=1,7
+            Pisum(i)=psum(Pirank(i))/(ia*ja*ka)
+          enddo
+          !
+          PiI(:,m) = PiI(:,m) + Pisum(1:7)
+          !
+          if(mpirank==0) then
+            call listwrite(hand_pipI,l_sqrtalpha(m,n),Pisum(1), Pisum(2),Pisum(3), &
+                          Pisum(4), Pisum(5),Pisum(6), Pisum(7))
+          endif
+          !
+          call mpi_barrier(mpi_comm_world,ierr)
+          !
+          !!! Mechanism B:Velocities
+          Pirank = 0.d0
+          Pisum =	0.d0
+          !
+          !! Action I: SigmaSigma
+          call tensor_multi_3d_ABT(term,Sigma_filted,Sigma_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(1) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          Pirank(2) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,2,2),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,3,3),8)*All_filted_l)*dl_alpha(m,n)
+          Pirank(2) = -Pirank(2)/6.d0
+          !
+          !! Action II: JJ
+          call tensor_multi_3d_ABT(term,J_filted,J_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(3) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          Pirank(4) = sum(real(term(:,:,:,1,1),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,2,2),8)*All_filted_l)*dl_alpha(m,n) + &
+                      sum(real(term(:,:,:,3,3),8)*All_filted_l)*dl_alpha(m,n)
+          Pirank(4) = -Pirank(2)/6.d0
+          !
+          !! Action III: SigmaJ
+          call tensor_multi_3d_ABT(term,J_filted,Sigma_filted,sym=.true.)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,  backward_plan)
+          Pirank(5) = sum(real(term,8)*S_filted_l)*dl_alpha(m,n)
+          !
+          !! Summation
+          do i=1,5
+            Pisum(i)=psum(Pirank(i))/(ia*ja*ka)
+          enddo
+          !
+          PiM(:,m) = PiM(:,m) + Pisum(1:5)
+          !
+          if(mpirank==0) then
+            call listwrite(hand_pipM,l_sqrtalpha(m,n),Pisum(1), Pisum(2),Pisum(3), &
+                          Pisum(4), Pisum(5))
+          endif
+          !
+          call mpi_barrier(mpi_comm_world,ierr)
+          !
+          !!! Mechanism C:Advections
+          Pirank = 0.d0
+          Pisum =	0.d0
+          !
+          !! Action I: Sigma S
+          call tensor_multi_3d_ABT(term,Sigma_filted,S_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(1) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(2) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action II: Sigma W
+          call tensor_multi_3d_ABT(term,Sigma_filted,W_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(3) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(4) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action III: Sigma Theta
+          call tensor_multi_3d_scalar(term,Sigma_filted,All_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(5) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)/3.d0
+          Pirank(6) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)/3.d0
+          !
+          !! Action IIII: J S
+          call tensor_multi_3d_ABT(term,J_filted,S_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(7) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(8) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action V: J W
+          call tensor_multi_3d_ABT(term,J_filted,W_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(9) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(10) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action VI: J Theta
+          call tensor_multi_3d_scalar(term,J_filted,All_filted)
+          call fft3dtensor(term,forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(11) = - sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)/3.d0
+          Pirank(12) = - sum(real(term,8)*J_filted_l)*dl_alpha(m,n)/3.d0
+          !
+          !! Action VII: density
+          !
+          term = 0.d0
+          do j=1,3
+          do k=1,3
+            term(:,:,:,1,j)= term(:,:,:,1,j) + dreal(b1_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,j,k)
+            term(:,:,:,2,j)= term(:,:,:,2,j) + dreal(b2_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,j,k)
+            term(:,:,:,3,j)= term(:,:,:,3,j) + dreal(b3_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,j,k)
+          enddo
+          enddo
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(13) = sum(real(term,8)*real(C_filted_l,8))*dl_alpha(m,n)
+          !
+          !! Summation
+          do i=1,13
+            Pisum(i)=psum(Pirank(i))/(ia*ja*ka)
+          enddo
+          !
+          PiA(:,m) = PiA(:,m) + Pisum(:)
+          !
+          if(mpirank==0) then
+            call listwrite(hand_pipA,l_sqrtalpha(m,n),Pisum(1), Pisum(2),Pisum(3), &
+                          Pisum(4), Pisum(5), Pisum(6), Pisum(7), Pisum(8), &
+                          Pisum(9), Pisum(10), Pisum(11), Pisum(12), Pisum(13))
+          endif
+          !
+          call mpi_barrier(mpi_comm_world,ierr)
+          !
+          !!! Mechanism D:Dynamo
+          Pirank = 0.d0
+          Pisum =	0.d0
+          !
+          !! Action I: S Sigma 
+          call tensor_multi_3d_ABT(term,S_filted,Sigma_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(1) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(2) = sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action II: W Sigma 
+          call tensor_multi_3d_ABT(term,W_filted,Sigma_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(3) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(4) = sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action III: Theta Sigma 
+          call tensor_multi_3d_scalar(term,Sigma_filted,All_filted,rev=.true.)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(5) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)/3.d0
+          Pirank(6) = sum(real(term,8)*J_filted_l)*dl_alpha(m,n)/3.d0
+          !
+          !! Action IIII: S J 
+          call tensor_multi_3d_ABT(term,S_filted,J_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(7) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(8) = sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action V: W J 
+          call tensor_multi_3d_ABT(term,W_filted,J_filted)
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(9) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)
+          Pirank(10) =sum(real(term,8)*J_filted_l)*dl_alpha(m,n)
+          !
+          !! Action VI: Theta J 
+          call tensor_multi_3d_scalar(term,J_filted,All_filted,rev=.true.)
+          call fft3dtensor(term,forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(11) = sum(real(term,8)*Sigma_filted_l)*dl_alpha(m,n)/3.d0
+          Pirank(12) = sum(real(term,8)*J_filted_l)*dl_alpha(m,n)/3.d0
+          !
+          !! Action VII: density
+          term = 0.d0
+          do i=1,3
+          do k=1,3
+            term(:,:,:,i,1)= term(:,:,:,i,1) + dreal(b1_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,i,k)
+            term(:,:,:,i,2)= term(:,:,:,i,2) + dreal(b2_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,i,k)
+            term(:,:,:,i,3)= term(:,:,:,i,3) + dreal(b3_filted) * dreal(H_filted(:,:,:,k)) * A_filted(:,:,:,i,k)
+          enddo
+          enddo
+          call fft3dtensor(term, forward_plan)
+          call tensor_scale_3d(term,Gphi)
+          call ifft3dtensor(term,backward_plan)
+          Pirank(13) = - sum(real(term,8)*real(C_filted_l,8))*dl_alpha(m,n)
+          !
+          !! Summation
+          do i=1,13
+            Pisum(i)=psum(Pirank(i))/(ia*ja*ka)
+          enddo
+          !
+          PiD(:,m) = PiD(:,m) + Pisum(:)
+          !
+          if(mpirank==0) then
+            call listwrite(hand_pipD,l_sqrtalpha(m,n),Pisum(1), Pisum(2),Pisum(3), &
+                          Pisum(4), Pisum(5), Pisum(6), Pisum(7), Pisum(8), &
+                          Pisum(9), Pisum(10), Pisum(11), Pisum(12), Pisum(13))
+          endif
+          !
+          call mpi_barrier(mpi_comm_world,ierr)
+          !
+        enddo
+        ! 
+        if(mpirank==0) then
+          call listwrite(hand_pipI,0.d0, 0.d0, 0.d0, &
+                      0.d0, 0.d0, 0.d0,&
+                      0.d0, 0.d0)
+          call listwrite(hand_pipI,sum(PiI(:,m)), & 
+          PiI(1,m), PiI(2,m),PiI(3,m),PiI(4,m), PiI(5,m),PiI(6,m), PiI(7,m))
+          !
+          call listwrite(hand_pipM, 0.d0, 0.d0, 0.d0, &
+                      0.d0, 0.d0, 0.d0)
+          call listwrite(hand_pipM,sum(PiM(:,m)), & 
+          PiM(1,m), PiM(2,m),PiM(3,m),PiM(4,m), PiM(5,m))
+          !
+          call listwrite(hand_pipA, 0.d0, &
+          0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0,&
+          0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0)
+          call listwrite(hand_pipA,sum(PiA(:,m)), & 
+          PiA(1,m), PiA(2,m),PiA(3,m),PiA(4,m), PiA(5,m), PiA(6,m), PiA(7,m),&
+          PiA(8,m), PiA(9,m),PiA(10,m),PiA(11,m), PiA(12,m), PiA(13,m))
+          !
+          call listwrite(hand_pipD, 0.d0, &
+          0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0,&
+          0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0)
+          call listwrite(hand_pipD,sum(PiD(:,m)), & 
+          PiD(1,m), PiD(2,m),PiD(3,m),PiD(4,m), PiD(5,m), PiD(6,m), PiD(7,m),&
+          PiD(8,m), PiD(9,m),PiD(10,m),PiD(11,m), PiD(12,m), PiD(13,m))
+          !
+          close(unit=hand_pipI)
+          close(unit=hand_pipM)
+          close(unit=hand_pipA)
+          close(unit=hand_pipD)
+          !
+        endif
+        !
+        call mpi_barrier(mpi_comm_world,ierr)
+        !
+      enddo
+      if(mpirank==0)  print *, 'Job finish'
+      !
+      if(mpirank==0) then
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_PiI_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_PiI.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell pis1 pim2 pis2 pim3 pis3 pim1 pid')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), PiI(1,m), PiI(2,m),PiI(3,m),PiI(4,m), PiI(5,m),PiI(6,m), PiI(7,m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+        !
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_PiM_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_PiM.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell pi1 pi2 pi3 pi4 pi5')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), PiM(1,m), PiM(2,m),PiM(3,m),PiM(4,m), PiM(5,m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+        !
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_PiA_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_PiA.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell pi1 pi2 pi3 pi4 pi5 pi6 pi7 pi8 pi9 pi10 pi11 pi12 pi13')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), PiA(1,m), PiA(2,m),PiA(3,m),PiA(4,m), PiA(5,m),PiA(6,m), PiA(7,m),&
+                                          PiA(8,m), PiA(9,m),PiA(10,m),PiA(11,m), PiA(12,m),PiA(13,m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+        !
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_PiD_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_PiD.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell pi1 pi2 pi3 pi4 pi5 pi6 pi7 pi8 pi9 pi10 pi11 pi12 pi13')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), PiD(1,m), PiD(2,m),PiD(3,m),PiD(4,m), PiD(5,m),PiD(6,m), PiD(7,m),&
+                                          PiD(8,m), PiD(9,m),PiD(10,m),PiD(11,m), PiD(12,m),PiD(13,m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+      endif
+      !
+      ! TODO: clean
+      call fftw_destroy_plan(forward_plan)
+      call fftw_destroy_plan(backward_plan)
+      call fftw_mpi_cleanup()
+      call fftw_free(c_w1)
+      call fftw_free(c_w2)
+      call fftw_free(c_w3)
+      call fftw_free(c_rhocom)
+      call fftw_free(c_b1)
+      call fftw_free(c_b2)
+      call fftw_free(c_b3)
+      call fftw_free(c_w1_filted)
+      call fftw_free(c_w2_filted)
+      call fftw_free(c_w3_filted)
+      call fftw_free(c_rho_filted)
+      call fftw_free(c_b1_filted)
+      call fftw_free(c_b2_filted)
+      call fftw_free(c_b3_filted)
+      call fftw_free(c_A_filted)
+      call fftw_free(c_C_filted)
+      call fftw_free(c_H_filted)
+      call fftw_free(c_term)
+      call mpistop
+      deallocate(All_filted_l,S_filted_l)
+      deallocate(All_filted,S_filted,W_filted)
+      deallocate(C_filted_l,Sigma_filted_l,J_filted_l,Sigma_filted,J_filted)
+      deallocate(k1,k2,k3,ksq,Galpha,Gl,Gphi)
+      deallocate(l_lim,l_sqrtalpha,l_phi,dl_alpha,num_alphas)
+      deallocate(PiI,PiM,PiD,PiA,Pirank,Pisum)
+      !
+    end subroutine SGSPiB3Dint
+    !
     subroutine SGSstress2D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need / Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -6969,7 +7752,7 @@ module udf_pp_SGS
     end subroutine SGSstress2D
     !
     subroutine SGSstress3D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need/ Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -7692,7 +8475,7 @@ module udf_pp_SGS
     end subroutine SGSstress3D
     !
     subroutine SGST3D(thefilenumb)
-      ! ! TODO : Improve need
+      ! ! TODO : Improve need/ Test need
       !
       use, intrinsic :: iso_c_binding
       use readwrite, only : readinput
@@ -8397,6 +9180,23 @@ module udf_pp_SGS
         !
     end subroutine ifft3d
     !
+    subroutine ifft3dvector(vector,plan)
+        !
+        use, intrinsic :: iso_c_binding
+        use commvar, only: im,jm,km,ia,ja,ka
+        !
+        complex(C_DOUBLE_COMPLEX), intent(inout) :: vector(:,:,:,:)
+        type(C_PTR), intent(in) :: plan
+        integer :: i,j,k
+        !
+        include 'fftw3-mpi.f03'
+        !
+        do i=1,3
+          call fftw_mpi_execute_dft(plan,vector(:,:,:,i),vector(:,:,:,i))
+        enddo
+        !
+    end subroutine ifft3dvector
+    !
     subroutine ifft3dtensor(tensor,plan)
         !
         use, intrinsic :: iso_c_binding
@@ -8416,7 +9216,7 @@ module udf_pp_SGS
         !
     end subroutine ifft3dtensor
     !
-    subroutine tensor_multi_3d_rhoABT(term,rho,A,B)
+    subroutine tensor_multi_3d_rhoABT(term,rho,A,B,sym)
       ! Attention: ik*jk = ij
       !
       implicit none
@@ -8424,19 +9224,224 @@ module udf_pp_SGS
       complex(8), intent(out) :: term(:,:,:,:,:)
       real(8), intent(in)     :: A(:,:,:,:,:),B(:,:,:,:,:)
       complex(8), intent(in)  :: rho(:,:,:)
+      integer,    intent(in), optional :: sym
       !
       integer :: i,j,k
       !
+      !
       term = 0.d0
       !
+      if (present(sym))then
+        !
+        do j=1,3
+        do i=1,3
+        do k=1,3
+          term(:,:,:,i,j) = term(:,:,:,i,j) + &
+                            dreal(rho(:,:,:)) * (A(:,:,:,i,k) * B(:,:,:,j,k) + B(:,:,:,i,k) * A(:,:,:,j,k))
+        enddo
+        enddo
+        enddo
+        !
+      else
+        do j=1,3
+        do i=1,3
+        do k=1,3
+          term(:,:,:,i,j) = term(:,:,:,i,j) + &
+                            dreal(rho(:,:,:)) * A(:,:,:,i,k) * B(:,:,:,j,k)
+        enddo
+        enddo
+        enddo
+        !
+      endif
+
+    end subroutine tensor_multi_3d_rhoABT
+    !
+    subroutine tensor_multi_3d_ABT(term,A,B,sym)
+      ! Attention: ik*jk = ij
+      !
+      implicit none
+      !
+      complex(8), intent(out) :: term(:,:,:,:,:)
+      real(8), intent(in)     :: A(:,:,:,:,:),B(:,:,:,:,:)
+      logical, intent(in), optional :: sym
+      !
+      integer :: i,j,k
+      !
+      !
+      term = 0.d0
+      !
+      if (merge(sym, .false., present(sym))) then
+        !
+        do j=1,3
+        do i=1,3
+        do k=1,3
+          term(:,:,:,i,j) = term(:,:,:,i,j) + &
+                            (A(:,:,:,i,k) * B(:,:,:,j,k) + B(:,:,:,i,k) * A(:,:,:,j,k))
+        enddo
+        enddo
+        enddo
+        !
+      else
+        do j=1,3
+        do i=1,3
+        do k=1,3
+          term(:,:,:,i,j) = term(:,:,:,i,j) + A(:,:,:,i,k) * B(:,:,:,j,k)
+        enddo
+        enddo
+        enddo
+        !
+      endif
+
+    end subroutine tensor_multi_3d_ABT
+    !
+    subroutine scalar_gradient(A, w, k1, k2, k3)
+
+      complex(8), intent(out) :: A(:,:,:,:)
+      complex(8), intent(in)  :: w(:,:,:)
+
+      real(8),    intent(in)  :: k1(:,:,:)
+      real(8),    intent(in)  :: k2(:,:,:)
+      real(8),    intent(in)  :: k3(:,:,:)
+
+      complex(8), parameter :: imag = CMPLX(0.d0,1.d0,8)
+
+      ! d()/dx
+      A(:,:,:,1) = imag*w*k1
+      A(:,:,:,2) = imag*w*k2
+      A(:,:,:,3) = imag*w*k3
+
+    end subroutine scalar_gradient
+    !
+    subroutine vector_gradient(A, w1, w2, w3, &
+                                 k1, k2, k3)
+
+      complex(8), intent(out) :: A(:,:,:,:,:)
+      complex(8), intent(in)  :: w1(:,:,:)
+      complex(8), intent(in)  :: w2(:,:,:)
+      complex(8), intent(in)  :: w3(:,:,:)
+
+      real(8),    intent(in)  :: k1(:,:,:)
+      real(8),    intent(in)  :: k2(:,:,:)
+      real(8),    intent(in)  :: k3(:,:,:)
+
+      complex(8), parameter :: imag = CMPLX(0.d0,1.d0,8)
+
+      ! d()/dx
+      A(:,:,:,1,1) = imag*w1*k1
+      A(:,:,:,2,1) = imag*w2*k1
+      A(:,:,:,3,1) = imag*w3*k1
+      A(:,:,:,1,2) = imag*w1*k2
+      A(:,:,:,2,2) = imag*w2*k2
+      A(:,:,:,3,2) = imag*w3*k2
+      A(:,:,:,1,3) = imag*w1*k3
+      A(:,:,:,2,3) = imag*w2*k3
+      A(:,:,:,3,3) = imag*w3*k3
+
+    end subroutine vector_gradient
+    !
+    subroutine tensor_scale_3d_real(T,scale)
+      implicit none
+
+      complex(8), intent(inout), dimension(:,:,:,:,:)  :: T
+      real(8),    intent(in)   , dimension(:,:,:)      :: scale
+
+      integer :: i,j
+
       do j=1,3
       do i=1,3
-      do k=1,3
-        term(:,:,:,i,j) = term(:,:,:,i,j) + &
-                          dreal(rho(:,:,:)) * (A(:,:,:,i,k) * B(:,:,:,j,k) + B(:,:,:,i,k) * A(:,:,:,j,k))
+        T(:,:,:,i,j) = T(:,:,:,i,j) * scale
       enddo
       enddo
+
+    end subroutine tensor_scale_3d_real
+    !
+    subroutine tensor_scale_3d_complex(T,scale)
+      implicit none
+
+      complex(8), intent(inout), dimension(:,:,:,:,:)  :: T
+      complex(8), intent(in)   , dimension(:,:,:)      :: scale
+
+      integer :: i,j
+
+      do j=1,3
+      do i=1,3
+        T(:,:,:,i,j) = T(:,:,:,i,j) * scale
       enddo
-      term = term/2.d0
-    end subroutine tensor_multi_3d_rhoABT
+      enddo
+
+    end subroutine tensor_scale_3d_complex
+    !
+    subroutine tensor_multi_3d_scalar_real(term,S,f1,rev)
+      implicit none
+
+      complex(8), intent(out), dimension (:,:,:,:,:) :: term
+      real(8),    intent(in) , dimension (:,:,:,:,:)  :: S
+      real(8),    intent(in) , dimension (:,:,:)  :: f1
+      logical,    intent(in) , optional :: rev
+      integer :: i,j
+      if (merge(rev, .false., present(rev)))then
+        do j=1,3
+        do i=1,3
+          term(:,:,:,i,j) = S(:,:,:,j,i)*f1
+        end do
+        end do
+      else
+        do j=1,3
+        do i=1,3
+          term(:,:,:,i,j) = S(:,:,:,i,j)*f1
+        end do
+        end do
+      endif
+
+    end subroutine tensor_multi_3d_scalar_real
+    !
+    !
+    subroutine tensor_multi_3d_scalar_auto_real(term,f1)
+      implicit none
+
+      complex(8), intent(inout), dimension (:,:,:,:,:) :: term
+      real(8),    intent(in)   , dimension (:,:,:)     :: f1
+
+      integer :: i,j
+
+      do j=1,3
+      do i=1,3
+        term(:,:,:,i,j) = term(:,:,:,i,j)*f1
+      end do
+      end do
+
+    end subroutine tensor_multi_3d_scalar_auto_real
+    !
+    subroutine tensor_multi_3d_scalar_auto_complex(term,f1)
+      implicit none
+
+      complex(8), intent(inout), dimension (:,:,:,:,:) :: term
+      complex(8), intent(in)   , dimension (:,:,:)     :: f1
+
+      integer :: i,j
+
+      do j=1,3
+      do i=1,3
+        term(:,:,:,i,j) = term(:,:,:,i,j)*f1
+      end do
+      end do
+
+    end subroutine tensor_multi_3d_scalar_auto_complex
+    !
+    subroutine tensor_multi_3d_scalar_complex(term,S,f1)
+      implicit none
+
+      complex(8), intent(out), dimension (:,:,:,:,:) :: term
+      real(8),    intent(in),  dimension (:,:,:,:,:)  :: S
+      complex(8), intent(in),  dimension (:,:,:)  :: f1
+
+      integer :: i,j
+
+      do j=1,3
+      do i=1,3
+        term(:,:,:,i,j) = S(:,:,:,i,j)*f1
+      end do
+      end do
+
+    end subroutine tensor_multi_3d_scalar_complex
 end module udf_pp_SGS
