@@ -28,6 +28,11 @@ module udf_tool
         module procedure GenerateWave_3D
     end interface
     !
+    interface NewGenerateWave
+        module procedure NewGenerateWave_2D
+        module procedure NewGenerateWave_3D
+    end interface
+    !
     contains
     !
     subroutine GenerateWave_2D(im,jm,ia,ja,j0,k1,k2)
@@ -109,6 +114,86 @@ module udf_tool
         enddo
         enddo
     end subroutine GenerateWave_3D
+    !
+    subroutine NewGenerateWave_2D(im,jm,ia,ja,j0,kvec)
+        implicit none
+        integer, intent(in) :: im,jm,ia,ja,j0
+        real(8), dimension(:,:,:),intent(out) :: kvec
+        integer :: i,j
+        !
+        do j=1,jm
+        do i=1,im
+        !
+        if((im .ne. ia) .and. ((2*im-2) .ne. ia))then
+            stop "GenerateWave Error! im /= ia  and (2*im-2) /= ia"
+        endif
+        !
+        if(i <= (ia/2+1)) then
+            kvec(i,j,1) = real(i-1,8)
+        else if(i<=(ia)) then
+            kvec(i,j,1) = real(i-ia-1,8)
+        else
+            stop "GenerateWave Error, no wave number possible, i must smaller than ia-1 !"
+        end if
+        !
+        if((j+j0) <= (ja/2+1)) then
+            kvec(i,j,2) = real(j+j0-1,8)
+        else if((j+j0)<=(ja)) then
+            kvec(i,j,2) = real(j+j0-ja-1,8)
+        else
+            stop "GenerateWave Error, no wave number possible, (j+j0) must smaller than ja-1 !"
+        end if
+        !
+        end do
+        end do
+    end subroutine NewGenerateWave_2D
+    !
+    subroutine NewGenerateWave_3D(im,jm,km,ia,ja,ka,k0,kvec)
+        implicit none
+        integer, intent(in) :: im,jm,km,ia,ja,ka,k0
+        real(8), dimension(:,:,:,:),intent(out) :: kvec
+        integer :: i,j,k
+        !
+        do k=1,km
+        do j=1,jm
+        do i=1,im
+        !
+        if((im .ne. ia) .and. ((2*im-2) .ne. ia))then
+            stop "GenerateWave Error! im /= ia and (2*im-2) /= ia"
+        endif
+        !
+        if(jm .ne. ja)then
+            stop "GenerateWave Error! jm /= ja"
+        endif
+        !
+        if(i <= (ia/2+1)) then
+            kvec(i,j,k,1) = real(i-1,8)
+        else if(i<=ia) then
+            kvec(i,j,k,1) = real(i-ia-1,8)
+        else
+            stop "GenerateWave Error, no wave number possible, i must smaller than ia-1 !"
+        end if
+        !
+        if(j <= (ja/2+1)) then
+            kvec(i,j,k,2) = real(j-1,8)
+        else if(j<=ja) then
+            kvec(i,j,k,2) = real(j-ja-1,8)
+        else
+            stop "GenerateWave Error, no wave number possible, j must smaller than ja-1 !"
+        end if
+        !
+        if((k+k0) <= (ka/2+1)) then
+            kvec(i,j,k,3) = real(k+k0-1,8)
+        else if((k+k0)<=ka) then
+            kvec(i,j,k,3) = real(k+k0-ka-1,8)
+        else
+            stop "GenerateWave Error, no wave number possible, (k+k0) must smaller than ka-1 !"
+        end if
+        !
+        enddo
+        enddo
+        enddo
+    end subroutine NewGenerateWave_3D
     !
     real(8) function wav(i,im)
     ! This function gives the wave number of index i
