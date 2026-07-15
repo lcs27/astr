@@ -184,6 +184,17 @@ module udf_pp_SGS
             call bcast(filenumb)
             call SGSPi3Dlocal(filenumb)
             !
+        elseif(trim(readmode)=='PiB3Dlocal') then
+            ! 
+            if(mpirank == 0) then
+                print* ," ** Use SGSPiB3Dlocal"
+                call readkeyboad(inputfile) 
+                read(inputfile,'(i4)') filenumb
+                print*,' ** Filenumb: ',filenumb
+            endif
+            call bcast(filenumb)
+            call SGSPiB3Dlocal(filenumb)
+            !
         elseif(trim(readmode)=='LES3D') then
             ! 
             if(mpirank == 0) then
@@ -4600,6 +4611,258 @@ module udf_pp_SGS
       deallocate(Pis1,Pis2,Pim2,Pim3,Pid)
       !
     end subroutine SGSPi3Dlocal
+    !
+    subroutine SGSPiB3Dlocal(thefilenumb)
+      ! 
+      !
+      use, intrinsic :: iso_c_binding
+      use readwrite, only : readinput
+      use fftwlink
+      use commvar,only : time,nstep,im,jm,km,ia,ja,ka
+      use commarray, only: vel, rho
+      use hdf5io
+      use utility,  only : listinit,listwrite
+      use parallel, only : bcast, pmax, pmin, psum, lio, parallelini,mpistop
+      use solver, only: refcal
+      include 'fftw3-mpi.f03'
+      !
+      integer,intent(in) :: thefilenumb
+      integer :: fh
+      integer :: i,j,k,m,n,mmm
+      character(len=128) :: infilename,outfilename
+      character(len=4) :: stepname,mname
+      
+      real(8), allocatable, dimension(:,:,:) :: ksq,Gl
+      real(8), allocatable, dimension(:,:,:,:) :: mag,kvec
+      complex(8) :: imag
+      real(8),allocatable,dimension(:) :: l_lim
+      integer :: num_l,num_alpha,num_alphamin
+      integer :: hand_a,hand_pipI,hand_pipM,hand_pipA,hand_pipD
+      real(8) :: l_min, ratio_max, ratio_min
+      real(8), allocatable, dimension(:) :: WC1,WC2,RHOTHETA
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:,:) :: w,b,w_filted, b_filted
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:) :: rho_filted,rhocom
+      complex(C_DOUBLE_COMPLEX), pointer, dimension(:,:,:,:,:) :: A_filted
+      real(8), allocatable, dimension(:,:,:) :: All_filted
+      !
+      !
+      type(C_PTR) :: c_w,c_rhocom,c_b
+      type(C_PTR) :: forward_plan,backward_plan
+      type(C_PTR) :: c_w_filted,c_rho_filted,c_b_filted
+      type(C_PTR) :: c_A_filted
+      !
+      integer,dimension(8) :: value
+      character(len=1) :: modeio
+      logical :: loutput
+      !
+      call readinput
+      call refcal
+      if(mpirank==0)  print*, '** refcal done!'
+      !
+      modeio='h'
+      ! Initialization
+      call fftw_mpi_init()
+      if(mpirank==0)  print *, "fftw_mpi initialized"
+      !
+      if(mpirank==0)  print *, "ia:",ia,",ja:",ja,",ka:",ka
+      !
+      call mpisizedis_fftw
+      if(mpirank==0)  print*, '** mpisizedis & parapp done!'
+      !
+      call parallelini
+      if(mpirank==0)  print*, '** parallelini done!'
+      !
+      !!!! Read velocity and density field
+      allocate(vel(0:im,0:jm,0:km,1:3), mag(0:im,0:jm,0:km,1:3), rho(0:im,0:jm,0:km))
+      !
+      if (thefilenumb .ne. 0) then
+        write(stepname,'(i4.4)')thefilenumb
+        infilename='outdat/flowfield'//stepname//'.'//modeio//'5'
+      else
+        infilename='outdat/flowfield.'//modeio//'5'
+      endif
+      !
+      call h5io_init(filename=infilename,mode='read')
+      !
+      call h5read(varname='ro', var=rho(0:im,0:jm,0:km),  mode = modeio)
+      call h5read(varname='u1', var=vel(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='u2', var=vel(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='u3', var=vel(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='b1', var=mag(0:im,0:jm,0:km,1),mode = modeio)
+      call h5read(varname='b2', var=mag(0:im,0:jm,0:km,2),mode = modeio)
+      call h5read(varname='b3', var=mag(0:im,0:jm,0:km,3),mode = modeio)
+      call h5read(varname='time',var=time)
+      call h5read(varname='nstep',var=nstep)
+      !
+      call h5io_end
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      if(mpirank==0)  print *, "Field read finish!"
+      !
+      !!!! Prepare initial field in Fourier space
+      !! velocity
+      c_w = fftw_alloc_complex(3*alloc_local)
+      call c_f_pointer(c_w, w, [imfftw,jmfftw,kmfftw,3_C_SIZE_T])
+      c_rhocom = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rhocom, rhocom, [imfftw,jmfftw,kmfftw])
+      c_b = fftw_alloc_complex(3*alloc_local)
+      call c_f_pointer(c_b, b, [imfftw,jmfftw,kmfftw,3_C_SIZE_T])
+      !
+      c_w_filted = fftw_alloc_complex(3*alloc_local)
+      call c_f_pointer(c_w_filted, w_filted,  [imfftw,jmfftw,kmfftw,3_C_SIZE_T])
+      c_rho_filted = fftw_alloc_complex(alloc_local)
+      call c_f_pointer(c_rho_filted, rho_filted,[imfftw,jmfftw,kmfftw])
+      c_b_filted = fftw_alloc_complex(3*alloc_local)
+      call c_f_pointer(c_b_filted, b_filted,  [imfftw,jmfftw,kmfftw,3_C_SIZE_T])
+      !
+      c_A_filted = fftw_alloc_complex(9*alloc_local)
+      call c_f_pointer(c_A_filted, A_filted,[imfftw,jmfftw,kmfftw,3_C_SIZE_T,3_C_SIZE_T])
+      !
+      !
+      allocate(All_filted(1:im,1:jm,1:km))
+      !
+      !
+      forward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, rhocom,rhocom, MPI_COMM_WORLD, FFTW_FORWARD, FFTW_MEASURE)
+      backward_plan = fftw_mpi_plan_dft_3d(kafftw,jafftw,iafftw, rhocom,rhocom, MPI_COMM_WORLD, FFTW_BACKWARD, FFTW_MEASURE)
+      !
+      ! Fill spectral arrays with density-weighted velocity and density
+      do i=1,3
+        w(1:im,1:jm,1:km,i) = CMPLX(vel(1:im,1:jm,1:km,i) * rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+        b(1:im,1:jm,1:km,i) = CMPLX(mag(1:im,1:jm,1:km,i), 0.d0, C_INTPTR_T)
+      enddo
+      rhocom(1:im,1:jm,1:km) = CMPLX(rho(1:im,1:jm,1:km), 0.d0, C_INTPTR_T)
+      
+      deallocate(vel,mag,rho)
+      !
+      !After this bloc, w1 is (rho*u1) in spectral space
+      call fft3dvector(w,forward_plan)
+      call fft3d(rhocom,forward_plan)
+      call fft3dvector(b,forward_plan)
+      !
+
+      !! wavenumber
+      allocate(Gl(1:im,1:jm,1:km))
+      allocate(kvec(1:im,1:jm,1:km,1:3),ksq(1:im,1:jm,1:km))
+      call NewGenerateWave(im,jm,km,ia,ja,ka,k0f,kvec)
+      ksq = kvec(:,:,:,1)**2 + kvec(:,:,:,2)**2 + kvec(:,:,:,3)**2
+      !
+      !! Imaginary number prepare
+      imag = CMPLX(0.d0,1.d0,8)
+      !
+      if(mpirank==0)  print *, "Velocity field and wavenum prepare finish"
+      !!!! Prepare l,alpha and others
+      call readSGSinput(num_l,num_alpha,num_alphamin,ratio_max,ratio_min,loutput)
+      l_min = 2*pi/ia
+      allocate(l_lim(1:num_l))
+      !
+      call SGSscale_allocate(num_l,l_min,ratio_max,ratio_min,l_lim)
+      !
+      if(mpirank==0)  print *, "Integrate point allocated"
+      !
+      call mpi_barrier(mpi_comm_world,ierr)
+      !
+      !!!!
+      allocate(WC1(1:num_l),WC2(1:num_l),RHOTHETA(1:num_l))
+      !
+      !
+      WC1 =	0.d0
+      WC2 = 0.d0
+      RHOTHETA = 0.d0
+      !
+      if(mpirank==0)  print *, "Array allocated and initialized"
+      !
+      do m=1,num_l
+        !
+        !!!!!! Filter to get Sij filted by l
+        if(mpirank==0)  print *, '* l = ', l_lim(m) ,' at', m, '/', num_l
+        !
+        !
+        !!!! l filetering --> outside
+        ! After this bloc, w1_filted is (rho*u1)_filted in spectral space
+        Gl = exp(-ksq*l_lim(m)**2*0.5d0) ! Filtre scale :l
+        do i=1,3
+        w_filted(:,:,:,i)=w(:,:,:,i)*Gl
+        b_filted(:,:,:,i)=b(:,:,:,i)*Gl
+        enddo
+        rho_filted   = rhocom*Gl
+        !
+        ! Only velocity do Favre filtering
+        ! After this bloc, w1_filted is (rho*u1)_filted in physical space
+        call ifft3dvector(w_filted,backward_plan)
+        call ifft3d(rho_filted,backward_plan)
+        call ifft3dvector(b_filted,backward_plan)
+        !
+        ! After this bloc, w1_filted is u1_filted in physical space
+        do i=1,3
+        w_filted(:,:,:,i)=w_filted(:,:,:,i)/rho_filted
+        enddo
+        !
+        ! After this bloc, w1_filted is u1_filted in fourier space, A11_filted is A11_filted in fourier space
+        call fft3dvector(w_filted,forward_plan)
+        call vector_gradient_3d(A_filted, w_filted, kvec)
+        !
+        ! After this bloc, A11_filted is A11_filted in physical space
+        call ifft3dtensor(A_filted,backward_plan)
+        !
+        All_filted(:,:,:) = dreal(A_filted(:,:,:,1,1)+A_filted(:,:,:,2,2)+A_filted(:,:,:,3,3))
+        !
+        !
+        do j=1,3
+        do i=1,3
+          WC1(m) = WC1(m) + sum(dreal(b_filted(:,:,:,i))*&
+                                dreal(b_filted(:,:,:,j))*&
+                                dreal(A_filted(:,:,:,i,j)))
+        enddo
+        WC2(m) = WC2(m) - 0.5d0 * sum(dreal(b_filted(:,:,:,j))*&
+                                      dreal(b_filted(:,:,:,j))*&
+                                      All_filted)
+        enddo
+        RHOTHETA(m) = RHOTHETA(m) + sum(rho_filted*All_filted)
+
+        WC1(m)=psum(WC1(m))/dble(ia*ja*ka)
+        WC2(m)=psum(WC2(m))/dble(ia*ja*ka)
+        RHOTHETA(m)=psum(RHOTHETA(m))/dble(ia*ja*ka)
+        !
+        if(mpirank==0)  print *, '** l filted!'
+        !
+      enddo
+      if(mpirank==0)  print *, 'Job finish'
+      !
+      if(mpirank==0) then
+        if (thefilenumb .ne. 0) then
+          outfilename = 'pp/SGS_PiBlocal_'//stepname//'.dat'
+        else
+          outfilename = 'pp/SGS_PiBlocal.dat'
+        endif
+        
+        call listinit(filename=outfilename,handle=hand_a, &
+                      firstline='nstep time ell WC1 WC2 RhoTheta')
+        do m=1,num_l
+          call listwrite(hand_a,l_lim(m), WC1(m), WC2(m),RHOTHETA(m))
+        enddo
+        !
+        print *, '>>>>', outfilename
+      endif
+      !
+      !
+      call fftw_destroy_plan(forward_plan)
+      call fftw_destroy_plan(backward_plan)
+      call fftw_mpi_cleanup()
+      call fftw_free(c_w)
+      call fftw_free(c_rhocom)
+      call fftw_free(c_b)
+      call fftw_free(c_w_filted)
+      call fftw_free(c_rho_filted)
+      call fftw_free(c_b_filted)
+      call fftw_free(c_A_filted)
+      call mpistop
+      deallocate(All_filted)
+      deallocate(kvec,ksq,Gl)
+      deallocate(l_lim)
+      deallocate(WC1,WC2,RHOTHETA)
+      !
+    end subroutine SGSPiB3Dlocal
     !
     subroutine SGSLES3D(thefilenumb)
       !
