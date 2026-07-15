@@ -4329,7 +4329,7 @@ module udf_pp_SGS
         print *, '>>>>', outfilename
       endif
       !
-      !TODO
+      !
       call fftw_destroy_plan(forward_plan)
       call fftw_destroy_plan(backward_plan)
       call fftw_mpi_cleanup()
@@ -5960,7 +5960,7 @@ module udf_pp_SGS
         print *, '>>>>', outfilename
       endif
       !
-      ! TODO: clean
+      !
       call fftw_destroy_plan(forward_plan)
       call fftw_destroy_plan(backward_plan)
       call fftw_mpi_cleanup()
@@ -7635,13 +7635,15 @@ module udf_pp_SGS
       real(8), intent(in)     :: A(:,:,:,:,:),B(:,:,:,:,:)
       complex(8), intent(in)  :: rho(:,:,:)
       logical, intent(in), optional :: sym
-      !
       integer :: i,j,k
+      logical :: lsym
       !
+      lsym = .false.
+      if (present(sym)) lsym = sym
       !
       term = 0.d0
       !
-      if (merge(sym, .false., present(sym)))then
+      if (lsym)then
         !
         do j=1,3
         do i=1,3
@@ -7674,13 +7676,15 @@ module udf_pp_SGS
       complex(8), intent(out) :: term(:,:,:,:,:)
       real(8), intent(in)     :: A(:,:,:,:,:),B(:,:,:,:,:)
       logical, intent(in), optional :: sym
-      !
       integer :: i,j,k
+      logical :: lsym
       !
+      lsym = .false.
+      if (present(sym)) lsym = sym
       !
       term = 0.d0
       !
-      if (merge(sym, .false., present(sym))) then
+      if (lsym)then
         !
         do j=1,3
         do i=1,3
@@ -7713,13 +7717,15 @@ module udf_pp_SGS
       real(8), intent(in)     :: A(:,:,:,:),B(:,:,:,:)
       complex(8), intent(in)  :: rho(:,:)
       logical, intent(in), optional :: sym
-      !
       integer :: i,j,k
+      logical :: lsym
       !
+      lsym = .false.
+      if (present(sym)) lsym = sym
       !
       term = 0.d0
       !
-      if (merge(sym, .false., present(sym)))then
+      if (lsym)then
         !
         do j=1,2
         do i=1,2
@@ -7752,13 +7758,15 @@ module udf_pp_SGS
       complex(8), intent(out) :: term(:,:,:,:)
       real(8), intent(in)     :: A(:,:,:,:),B(:,:,:,:)
       logical, intent(in), optional :: sym
-      !
       integer :: i,j,k
+      logical :: lsym
       !
+      lsym = .false.
+      if (present(sym)) lsym = sym
       !
       term = 0.d0
       !
-      if (merge(sym, .false., present(sym))) then
+      if (lsym)then
         !
         do j=1,2
         do i=1,2
@@ -7875,16 +7883,21 @@ module udf_pp_SGS
       real(8),    intent(in) , dimension (:,:,:)  :: f1
       logical,    intent(in) , optional :: rev
       integer :: i,j
-      if (merge(rev, .false., present(rev)))then
+      logical :: lrev
+
+      lrev = .false.
+      if (present(rev)) lrev = rev
+
+      if (lrev)then
         do j=1,3
         do i=1,3
-          term(:,:,:,i,j) = S(:,:,:,j,i)*f1
+          term(:,:,:,i,j) =  CMPLX(S(:,:,:,j,i)*f1, 0.d0, 8)
         end do
         end do
       else
         do j=1,3
         do i=1,3
-          term(:,:,:,i,j) = S(:,:,:,i,j)*f1
+          term(:,:,:,i,j) = CMPLX(S(:,:,:,i,j)*f1, 0.d0, 8)
         end do
         end do
       endif
@@ -7968,16 +7981,21 @@ module udf_pp_SGS
       real(8),    intent(in) , dimension (:,:)  :: f1
       logical,    intent(in) , optional :: rev
       integer :: i,j
-      if (merge(rev, .false., present(rev)))then
+      logical :: lrev
+
+      lrev = .false.
+      if (present(rev)) lrev = rev
+
+      if (lrev)then
         do j=1,2
         do i=1,2
-          term(:,:,i,j) = S(:,:,j,i)*f1
+          term(:,:,i,j) = CMPLX(S(:,:,j,i)*f1,0.d0,8)
         end do
         end do
       else
         do j=1,2
         do i=1,2
-          term(:,:,i,j) = S(:,:,i,j)*f1
+          term(:,:,i,j) = CMPLX(S(:,:,i,j)*f1,0.d0,8)
         end do
         end do
       endif
